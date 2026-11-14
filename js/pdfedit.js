@@ -21,7 +21,7 @@ export function hexToRgb(hex) {
 }
 
 // ---------- 画像 → PDF（スキャン） ----------
-async function imageToJpeg(file, maxSide = 2200) {
+async function imageToJpeg(file, maxSide = 3508) {
   const bmp = await loadBitmap(file);
   const s = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
   const w = Math.round(bmp.width * s), hgt = Math.round(bmp.height * s);
@@ -31,7 +31,7 @@ async function imageToJpeg(file, maxSide = 2200) {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, hgt);
   ctx.drawImage(bmp, 0, 0, w, hgt);
   if (bmp.close) bmp.close();
-  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
   c.width = c.height = 0;
   return { bytes: await blob.arrayBuffer(), w, h: hgt };
 }
