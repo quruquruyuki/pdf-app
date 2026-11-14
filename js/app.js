@@ -210,6 +210,145 @@ async function saveAnnots(data) {
 annot.onTextRequest = (init) => promptBox('テキストを入力', init, { multiline: true, placeholder: '改行もできます' });
 annot.onToolChanged = (t) => refreshToolUI();
 
+// =====================================================================
+// 文字の編集（元の文字を背景色で隠して、新しい文字を重ねる）
+// =====================================================================
+const CJK_RE = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+
+function textRunAt(i, x, y) {
+  const p = viewer.pages[i];
+  const pr = p.div.getBoundingClientRect();
+  const k = p.w / pr.width;
+  const spans = [...p.div.querySelectorAll('.textLayer span, .ocrLayer span')]
+    .filter(sp => !sp.classList.contains('markedContent') && sp.textContent && sp.textContent.trim())
+    .map(sp => {
+      const r = sp.getBoundingClientRect();
+      return { sp, t: sp.textContent, x: (r.left - pr.left) * k, y: (r.top - pr.top) * k, w: r.width * k, h: r.height * k };
+    })
+    .filter(r => r.w > 0.5 && r.h > 0.5 && r.h < p.h * 0.3);
+  if (!spans.length) return null;
+  const pad = 2;
+  let hit = spans.find(r => x >= r.x - pad && x <= r.x + r.w + pad && y >= r.y - pad && y <= r.y + r.h + pad);
+  if (!hit) {
+    // 少し外れていても、近くの行を拾う
+    let best = null, bd = 8;
+    for (const r of spans) {
+      const dx = Math.max(r.x - x, 0, x - (r.x + r.w)), dy = Math.max(r.y - y, 0, y - (r.y + r.h));
+      const d = Math.hypot(dx, dy);
+      if (d < bd) { bd = d; best = r; }
+    }
+    hit = best;
+  }
+  if (!hit) return null;
+  // 同じ行で続いている断片をつなげる
+  const sameLine = (r) => {
+    const ov = Math.min(r.y + r.h, hit.y + hit.h) - Math.max(r.y, hit.y);
+    return ov > Math.min(r.h, hit.h) * 0.6;
+  };
+  const line = spans.filter(sameLine).sort((a, b) => a.x - b.x);
+  let k0 = line.indexOf(hit), k1 = k0;
+  const near = (a, b) => b.x - (a.x + a.w) < Math.max(a.h, b.h) * 1.2;
+  while (k0 > 0 && near(line[k0 - 1], line[k0])) k0--;
+  while (k1 < line.length - 1 && near(line[k1], line[k1 + 1])) k1++;
+  const run = line.slice(k0, k1 + 1);
+  let text = '';
+  run.forEach((r, n) => {
+    if (n) {
+      const prev = run[n - 1];
+      const gap = r.x - (prev.x + prev.w);
+      const a = text.slice(-1), b = r.t[0];
+      if (gap > r.h * 0.25 && !CJK_RE.test(a) && !CJK_RE.test(b) && a !== ' ' && b !== ' ') text += ' ';
+    }
+    text += r.t;
+  });
+  const x1 = Math.min(...run.map(r => r.x)), y1 = Math.min(...run.map(r => r.y));
+  const x2 = Math.max(...run.map(r => r.x + r.w)), y2 = Math.max(...run.map(r => r.y + r.h));
+  return { text: text.trim(), x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+}
+
+// 文字色と背景色を、表示中のページ画像から読み取る
+function sampleColors(i, rc) {
+  const p = viewer.pages[i];
+  const res = { fg: '#111111', bg: '#ffffff' };
+  if (!p.canvas) return res;
+  try {
+    const k = p.canvas.width / p.w;
+    const x = Math.max(0, Math.floor((rc.x - 2) * k)), y = Math.max(0, Math.floor((rc.y - 2) * k));
+    const w = Math.min(p.canvas.width - x, Math.ceil((rc.w + 4) * k)), h = Math.min(p.canvas.height - y, Math.ceil((rc.h + 4) * k));
+    if (w < 2 || h < 2) return res;
+    const d = p.canvas.getContext('2d').getImageData(x, y, w, h).data;
+    const lum = (o) => 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
+    // 背景：枠のふちの色で一番多いもの
+    const counts = new Map();
+    const edge = (px, py) => {
+      const o = (py * w + px) * 4;
+      const key = ((d[o] >> 3) << 10) | ((d[o + 1] >> 3) << 5) | (d[o + 2] >> 3);
+      const c = counts.get(key) || { n: 0, r: 0, g: 0, b: 0 };
+      c.n++; c.r += d[o]; c.g += d[o + 1]; c.b += d[o + 2];
+      counts.set(key, c);
+    };
+    for (let px = 0; px < w; px++) { edge(px, 0); edge(px, h - 1); }
+    for (let py = 0; py < h; py++) { edge(0, py); edge(w - 1, py); }
+    let best = null;
+    for (const c of counts.values()) if (!best || c.n > best.n) best = c;
+    const toHex = (r, g, b) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+    if (best) res.bg = toHex(best.r / best.n, best.g / best.n, best.b / best.n);
+    // 文字：背景から一番離れた色
+    const bl = best ? (0.299 * best.r + 0.587 * best.g + 0.114 * best.b) / best.n : 255;
+    let far = -1, fo = 0;
+    for (let o = 0; o < d.length; o += 4) {
+      const diff = Math.abs(lum(o) - bl);
+      if (diff > far) { far = diff; fo = o; }
+    }
+    if (far > 40) res.fg = toHex(d[fo], d[fo + 1], d[fo + 2]);
+  } catch (e) { console.warn(e); }
+  return res;
+}
+
+annot.onEditTextAt = async (i, x, y, existing) => {
+  let base;
+  if (existing) {
+    base = { ...existing };
+  } else {
+    const run = textRunAt(i, x, y);
+    if (!run) {
+      toast('ここに文字が見つかりません。スキャンしたページは、先にOCRしてください', 3500);
+      return;
+    }
+    const col = sampleColors(i, run);
+    const pad = Math.max(0.6, run.h * 0.08);
+    base = {
+      type: 'edit', orig: run.text, text: run.text,
+      x: +(run.x - pad).toFixed(2), y: +(run.y - pad).toFixed(2), w: +(run.w + pad * 2).toFixed(2), h: +(run.h + pad * 2).toFixed(2),
+      tx: +run.x.toFixed(2), ty: +(run.y - run.h * 0.04).toFixed(2), size: +(run.h * 0.95).toFixed(2),
+      color: col.fg, bg: col.bg, rot: 0,
+    };
+  }
+  const ta = h('textarea', { rows: 3 });
+  ta.value = base.text;
+  const size = h('input', { type: 'number', min: 4, max: 200, step: 0.5, value: (+base.size).toFixed(1) });
+  const fg = h('input', { type: 'color', value: base.color });
+  const bg = h('input', { type: 'color', value: base.bg || '#ffffff' });
+  const form = h('div', { class: 'edit-form' },
+    h('label', {}, '元の文字'), h('div', { class: 'orig' }, base.orig || ''),
+    h('label', {}, '新しい文字'), ta,
+    h('div', { class: 'row' },
+      h('span', { class: 'small' }, '大きさ'), size,
+      h('span', { class: 'small' }, '文字色'), fg,
+      h('span', { class: 'small' }, '背景色'), bg),
+    h('p', { class: 'muted small' }, '元の文字を背景色で隠して、新しい文字を重ねます。'));
+  const v = await modal(existing ? '文字の編集を変更' : '文字を編集', form, [
+    { label: 'キャンセル', value: 'cancel' },
+    existing ? { label: '元に戻す', value: 'revert' } : { label: '文字を消す', value: 'erase' },
+    { label: '保存', value: 'save', primary: true },
+  ]);
+  if (v === 'cancel' || !v) return;
+  if (v === 'revert') { annot.remove(i, existing.id); return; }
+  const next = { ...base, text: v === 'erase' ? '' : ta.value, size: Math.max(4, +size.value || base.size), color: fg.value, bg: bg.value };
+  if (existing) annot.replace(i, existing.id, next);
+  else annot.add(i, next);
+};
+
 async function closeViewer() {
   clearTimeout(saveTimer);
   if (S.doc) await saveAnnots(annot.data);
@@ -232,7 +371,7 @@ function refreshToolUI() {
   $$('#annotBar .tool').forEach(b => b.classList.toggle('on', b.dataset.tool === annot.tool));
   const row = $('#colorRow');
   row.innerHTML = '';
-  const showColor = annot.tool && annot.tool !== 'eraser' && annot.tool !== 'select';
+  const showColor = annot.tool && annot.tool !== 'eraser' && annot.tool !== 'select' && annot.tool !== 'edittext';
   row.classList.toggle('hidden', !showColor);
   $('#widthSel').classList.toggle('hidden', !showColor);
   $('.pencil-toggle').classList.toggle('hidden', !(annot.tool === 'pen' || annot.tool === 'marker'));
@@ -251,6 +390,7 @@ function bindAnnotBar() {
     annot.setTool(b.dataset.tool);
     annot.lastTool = b.dataset.tool;
     refreshToolUI();
+    if (b.dataset.tool === 'edittext') toast('編集したい文字をタップしてください', 2500);
   });
   $('#widthSel').onchange = (e) => { annot.widthLevel = +e.target.value; };
   $('#pencilOnly').onchange = (e) => { annot.pencilOnly = e.target.checked; annot._applyMode(); db.kvSet('pencilOnly', e.target.checked); };
@@ -271,6 +411,7 @@ annot.onSelect = (sel, hideOnly) => {
     const t = await promptBox('テキストを編集', a.text, { multiline: true });
     if (t != null) annot.updateSelected(x => { x.text = t; });
   });
+  if (a.type === 'edit') btn('編集', () => annot.onEditTextAt(sel.i, 0, 0, a));
   if (a.type !== 'hl') { btn('大きく', () => annot.scaleSelected(1.2)); btn('小さく', () => annot.scaleSelected(1 / 1.2)); }
   btn('色', async () => {
     const c = await sheet('色', COLORS.map(c => ({ icon: h('span', { class: 'swatch', style: { background: c, display: 'inline-block' } }), label: c, value: c })));
@@ -795,7 +936,7 @@ function bindDesktop() {
     else if (k === 'end') { e.preventDefault(); viewer.scrollToPage(viewer.pages.length - 1); }
     else {
       // 1文字キーでツール切り替え（注釈モード中）
-      const map = { v: 'select', h: 'marker', p: 'pen', t: 'text', r: 'rect', o: 'ellipse', a: 'arrow', e: 'eraser' };
+      const map = { v: 'select', h: 'marker', p: 'pen', t: 'text', x: 'edittext', r: 'rect', o: 'ellipse', a: 'arrow', e: 'eraser' };
       if (map[k]) {
         if ($('#annotBar').classList.contains('hidden')) setAnnotMode(true);
         annot.setTool(map[k]); annot.lastTool = map[k]; refreshToolUI();

@@ -74,7 +74,13 @@ input, select, textarea { font: inherit; color: inherit; }
 .page .page-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
 .annot-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; overflow: visible; pointer-events: none; }
 .annot-layer.drawing { pointer-events: auto; touch-action: none; }
-.annot-layer.pencil { touch-action: pan-x pan-y; }
+.annot-layer.pencil, .annot-layer.tapmode { touch-action: pan-x pan-y; }
+.edittext-mode .textLayer span:not(.markedContent), .edittext-mode .ocrLayer span { outline: 1px dashed rgba(47,111,237,.55); outline-offset: 1px; background: rgba(47,111,237,.06); }
+.edit-form label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+.edit-form .orig { font-size: 13px; background: var(--bg); padding: 8px 10px; border-radius: 8px; color: var(--muted); word-break: break-all; }
+.edit-form .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.edit-form input[type=color] { width: 44px; height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: none; }
+.edit-form input[type=number] { width: 80px; }
 .annot-layer .hit { pointer-events: none; }
 .annot-layer.selecting .hit { pointer-events: auto; cursor: move; }
 .annot-layer .sel-box { fill: none; stroke: var(--sel); stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; stroke-width: 1.5; }

@@ -66,6 +66,11 @@ export function bbox(a) {
       const x = Math.min(a.x1, a.x2), y = Math.min(a.y1, a.y2);
       return { x: x - 6, y: y - 6, w: Math.abs(a.x2 - a.x1) + 12, h: Math.abs(a.y2 - a.y1) + 12 };
     }
+    case 'edit': {
+      const { w, h } = textBox(a);
+      if (a.rot) return { x: a.x, y: a.y, w: a.w, h: a.h };
+      return { x: Math.min(a.x, a.tx), y: Math.min(a.y, a.ty), w: Math.max(a.x + a.w, a.tx + w) - Math.min(a.x, a.tx), h: Math.max(a.y + a.h, a.ty + h) - Math.min(a.y, a.ty) };
+    }
     case 'text': {
       const { w, h } = textBox(a);
       const r = a.rot || 0;
@@ -102,6 +107,7 @@ export function translate(a, dx, dy) {
     case 'ink': a.points = a.points.map(([x, y]) => [x + dx, y + dy]); break;
     case 'hl': a.rects = a.rects.map(([x, y, w, h]) => [x + dx, y + dy, w, h]); break;
     case 'arrow': a.x1 += dx; a.x2 += dx; a.y1 += dy; a.y2 += dy; break;
+    case 'edit': a.x += dx; a.y += dy; a.tx += dx; a.ty += dy; break;
     default: a.x += dx; a.y += dy;
   }
 }
@@ -114,6 +120,7 @@ function scaleAnnot(a, f) {
     case 'arrow': [a.x1, a.y1] = S(a.x1, a.y1); [a.x2, a.y2] = S(a.x2, a.y2); break;
     case 'text': [a.x, a.y] = S(a.x, a.y); a.size *= f; break;
     case 'hl': break;
+    case 'edit': [a.x, a.y] = S(a.x, a.y); [a.tx, a.ty] = S(a.tx, a.ty); a.w *= f; a.h *= f; a.size *= f; break;
     default: [a.x, a.y] = S(a.x, a.y); a.w *= f; a.h *= f;
   }
 }
@@ -138,6 +145,7 @@ export function rotateAnnot(a, deg, w, h) {
         a.strokes = abs.map(s => s.map(([x, y]) => [(x - a.x) / a.w, (y - a.y) / a.h]));
         break;
       }
+      case 'edit': [a.tx, a.ty] = f(a.tx, a.ty); [a.x, a.y, a.w, a.h] = rectT(a.x, a.y, a.w, a.h); a.rot = ((a.rot || 0) + 90) % 360; break;
       default: [a.x, a.y, a.w, a.h] = rectT(a.x, a.y, a.w, a.h);
     }
     [W, H] = [H, W];
@@ -199,9 +207,12 @@ export class Annotator {
       p.svg.classList.toggle('drawing', !!drawing || !!this.pendingSign);
       p.svg.classList.toggle('pencil', !!drawing && this.pencilOnly && (this.tool === 'pen' || this.tool === 'marker'));
       p.svg.classList.toggle('selecting', this.tool === 'select');
+      // タップだけで使うツールは、指でスクロールできるようにする
+      p.svg.classList.toggle('tapmode', this.tool === 'edittext' || this.tool === 'text');
     }
     // 描いている間は文字選択を止める
     document.body.classList.toggle('annotating', !!this.tool);
+    document.body.classList.toggle('edittext-mode', this.tool === 'edittext');
     for (const p of this.v.pages) {
       if (p.textLayer) p.textLayer.style.pointerEvents = this.tool ? 'none' : '';
       const o = p.div.querySelector('.ocrLayer');
@@ -299,6 +310,18 @@ export class Annotator {
           g.append(svg('path', { d: smoothPath(pts), fill: 'none', stroke: a.color, 'stroke-width': a.width || 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
         }
         break;
+      case 'edit': {
+        g.append(svg('rect', { x: a.x, y: a.y, width: a.w, height: a.h, fill: a.bg || '#ffffff' }));
+        const t = svg('text', { x: a.tx, y: a.ty, fill: a.color, 'font-size': a.size, 'font-family': '"Hiragino Sans","Noto Sans JP",sans-serif' });
+        if (a.rot) t.setAttribute('transform', `rotate(${a.rot} ${a.tx} ${a.ty})`);
+        String(a.text || '').split('\n').forEach((line, k) => {
+          const ts = svg('tspan', { x: a.tx, y: a.ty + a.size * 0.88 + k * a.size * 1.3 });
+          ts.textContent = line || ' ';
+          t.append(ts);
+        });
+        g.append(t);
+        break;
+      }
       case 'text': {
         const t = svg('text', { x: a.x, y: a.y, fill: a.color, 'font-size': a.size, 'font-family': '"Hiragino Sans","Noto Sans JP",sans-serif' });
         if (a.rot) t.setAttribute('transform', `rotate(${a.rot} ${a.x} ${a.y})`);
@@ -368,6 +391,10 @@ export class Annotator {
         cur = { mode: 'text', x, y };
         return;
       }
+      if (this.tool === 'edittext') {
+        cur = { mode: 'edittext', x, y };
+        return;
+      }
       if (this.tool === 'pen' || this.tool === 'marker') {
         cur = { mode: 'ink', pts: [[x, y]], live: svg('path', { class: 'live', fill: 'none', stroke: this.currentColor, 'stroke-width': this.currentWidth, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }) };
         if (this.tool === 'marker') { cur.live.setAttribute('stroke-opacity', '0.4'); cur.live.style.mixBlendMode = 'multiply'; }
@@ -425,6 +452,11 @@ export class Annotator {
         if (c.live) c.live.remove();
         const a = this._shapeFrom(c);
         if (a) this.add(p.i, a);
+        return;
+      }
+      if (c.mode === 'edittext' && e.type !== 'pointercancel') {
+        const hit = (this.data[p.i] || []).slice().reverse().find(a => a.type === 'edit' && hits(a, c.x, c.y, 2));
+        this.onEditTextAt && this.onEditTextAt(p.i, c.x, c.y, hit || null);
         return;
       }
       if (c.mode === 'text' && e.type !== 'pointercancel') {
@@ -522,6 +554,17 @@ export class Annotator {
       const color = kind === 'highlight' ? this.color.marker : (kind === 'underline' ? '#3b82f6' : '#ff3b30');
       this.add(+i, { type: 'hl', kind, rects, color });
     }
+  }
+
+  // 既存の注釈を置き換える（履歴付き）
+  replace(i, id, next) {
+    const list = this.data[i] || [];
+    const k = list.findIndex(a => a.id === id);
+    if (k < 0) return;
+    this._snapshot();
+    list[k] = { ...next, id };
+    this.renderPage(i);
+    this._changed();
   }
 
   placeSign(sig) {

@@ -103,7 +103,7 @@ export async function exportPdf(bytes, annots, ocr, { includeOcr = true } = {}) 
   // 使う文字を集めて、その文字だけのフォントを埋め込む
   let chars = '';
   pages.forEach((_, i) => {
-    for (const a of annots[i] || []) if (a.type === 'text') chars += a.text || '';
+    for (const a of annots[i] || []) if (a.type === 'text' || a.type === 'edit') chars += a.text || '';
     if (includeOcr && ocr[i]) for (const w of (ocr[i].lines || ocr[i].words || [])) chars += w.t || '';
   });
   let font = null;
@@ -208,6 +208,19 @@ function drawAnnot(page, a, map, rot, font) {
         stroke(pts, a.width || 1.6);
       }
       break;
+    case 'edit': {
+      // 元の文字を背景色で隠して、新しい文字を書く
+      page.drawSvgPath(pathFromPoints(rectPoints(a.x, a.y, a.w, a.h), map, true), { x: 0, y: 0, color: hexToRgb(a.bg || '#ffffff') });
+      if (!font) break;
+      const r = a.rot || 0;
+      String(a.text || '').split('\n').forEach((line, k) => {
+        if (!line) return;
+        const [ox, oy] = rotVec(0, a.size * 0.88 + k * a.size * 1.3, r);
+        const [X, Y] = map(a.tx + ox, a.ty + oy);
+        page.drawText(line, { x: X, y: Y, size: a.size, font, color, rotate: degrees(rot - r) });
+      });
+      break;
+    }
     case 'text': {
       if (!font) break;
       const lines = String(a.text || '').split('\n');
