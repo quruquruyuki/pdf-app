@@ -735,6 +735,75 @@ async function openThumbs() {
   }
 }
 
+// ---------- パソコン向け：キーボード・ドラッグ＆ドロップ・拡大縮小 ----------
+viewer.onZoom = (z) => { $('#zoomVal').textContent = Math.round(z * 100) + '%'; };
+
+function bindDesktop() {
+  $('#zoomIn').onclick = () => viewer.setZoom(viewer.zoom * 1.2);
+  $('#zoomOut').onclick = () => viewer.setZoom(viewer.zoom / 1.2);
+  $('#zoomVal').onclick = () => viewer.setZoom(1);
+
+  // ドラッグ＆ドロップで追加
+  let depth = 0;
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  document.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; $('#dropZone').classList.remove('hidden'); });
+  document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  document.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; $('#dropZone').classList.add('hidden'); } });
+  document.addEventListener('drop', async (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0; $('#dropZone').classList.add('hidden');
+    const files = [...e.dataTransfer.files];
+    const pdfs = files.filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+    const imgs = files.filter(f => f.type.startsWith('image/'));
+    if (!pdfs.length && !imgs.length) { toast('PDFか画像をドロップしてください'); return; }
+    if ($('#viewer').classList.contains('active')) await closeViewer();
+    if (pdfs.length) await importFiles(pdfs, false);
+    if (imgs.length) await importFiles(imgs, true);
+  });
+
+  // キーボードショートカット
+  document.addEventListener('keydown', (e) => {
+    const typing = e.target.closest('input, textarea, select');
+    const mod = e.ctrlKey || e.metaKey;
+    const inViewer = $('#viewer').classList.contains('active');
+    if (e.key === 'Escape') {
+      if (!$('#modal').classList.contains('hidden')) return;
+      if (!$('#sheet').classList.contains('hidden')) { $('#sheetBackdrop').click(); return; }
+      if (inViewer) {
+        if (!$('#searchBar').classList.contains('hidden')) closeSearch();
+        else if (annot.selected) annot.deselect();
+        else if (!$('#thumbPanel').classList.contains('hidden')) $('#thumbPanel').classList.add('hidden');
+        else if (annot.tool) setAnnotMode(false);
+      }
+      return;
+    }
+    if (!inViewer || typing || !$('#modal').classList.contains('hidden')) return;
+    const k = e.key.toLowerCase();
+    if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); annot.undo(); }
+    else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); annot.redo(); }
+    else if (mod && k === 'f') { e.preventDefault(); openSearch(); }
+    else if (mod && k === 's') { e.preventDefault(); shareDoc(S.doc); }
+    else if (mod && (k === '=' || k === '+' || k === ';')) { e.preventDefault(); viewer.setZoom(viewer.zoom * 1.2); }
+    else if (mod && k === '-') { e.preventDefault(); viewer.setZoom(viewer.zoom / 1.2); }
+    else if (mod && k === '0') { e.preventDefault(); viewer.setZoom(1); }
+    else if ((k === 'delete' || k === 'backspace') && annot.selected) { e.preventDefault(); annot.deleteSelected(); }
+    else if (mod) return;
+    else if (k === 'pagedown' || k === 'arrowright') { e.preventDefault(); viewer.scrollToPage(Math.min(viewer.current + 1, viewer.pages.length - 1)); }
+    else if (k === 'pageup' || k === 'arrowleft') { e.preventDefault(); viewer.scrollToPage(Math.max(viewer.current - 1, 0)); }
+    else if (k === 'home') { e.preventDefault(); viewer.scrollToPage(0); }
+    else if (k === 'end') { e.preventDefault(); viewer.scrollToPage(viewer.pages.length - 1); }
+    else {
+      // 1文字キーでツール切り替え（注釈モード中）
+      const map = { v: 'select', h: 'marker', p: 'pen', t: 'text', r: 'rect', o: 'ellipse', a: 'arrow', e: 'eraser' };
+      if (map[k]) {
+        if ($('#annotBar').classList.contains('hidden')) setAnnotMode(true);
+        annot.setTool(map[k]); annot.lastTool = map[k]; refreshToolUI();
+      }
+    }
+  });
+}
+
 function bindViewer() {
   $('#btnBack').onclick = closeViewer;
   $('#btnSearch').onclick = () => $('#searchBar').classList.contains('hidden') ? openSearch() : closeSearch();
@@ -757,6 +826,7 @@ async function init() {
   bindHome();
   bindViewer();
   bindAnnotBar();
+  bindDesktop();
   initOrganizerUI();
   S.sort = await db.kvGet('sort', 'updated');
   annot.pencilOnly = await db.kvGet('pencilOnly', false);

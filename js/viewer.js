@@ -105,6 +105,7 @@ export class Viewer {
     this.body.scrollLeft = cx * r - fx;
     this.body.scrollTop = cy * r - fy;
     this._scheduleVisible();
+    this.onZoom && this.onZoom(this.zoom);
   }
 
   scrollToPage(i, smooth = true) {

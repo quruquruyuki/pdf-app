@@ -185,3 +185,20 @@ input, select, textarea { font: inherit; color: inherit; }
 .progress .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 
 .toast { position: fixed; left: 50%; bottom: calc(var(--bar-h) + 70px + var(--safe-bottom)); transform: translateX(-50%); background: rgba(30,30,34,.92); color: #fff; padding: 10px 16px; border-radius: 12px; z-index: 70; font-size: 14px; max-width: 86vw; text-align: center; }
+
+/* ---------- パソコン向け ---------- */
+.pc-only { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .pc-only { display: flex; }
+  p.pc-only { display: block; }
+  .annot-layer.drawing { cursor: crosshair; }
+  .annot-layer.selecting .hit { cursor: move; }
+  .file-card { cursor: pointer; transition: transform .15s, box-shadow .15s; }
+  .file-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+  .icon-btn:hover, .tool:hover, .mtool:hover { background: rgba(127,127,127,.12); }
+}
+.zoom-ctl { align-items: center; gap: 2px; margin-right: 6px; }
+.zoom-val { min-width: 54px; color: var(--bar-text); font-size: 13px; padding: 6px 4px; border-radius: 8px; }
+.zoom-val:hover { background: rgba(255,255,255,.12); }
+.drop-zone { position: fixed; inset: 0; z-index: 80; background: rgba(224,56,62,.12); border: 4px dashed var(--accent); display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.drop-zone div { background: var(--card); padding: 16px 24px; border-radius: 14px; font-weight: 700; box-shadow: 0 8px 24px rgba(0,0,0,.2); }

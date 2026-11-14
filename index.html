@@ -31,6 +31,7 @@
     <div class="empty-icon">📄</div>
     <p>右下の＋からPDFを開くか、<br>カメラで書類をスキャンしてください。</p>
     <p class="muted small">PDFはこの端末の中だけに保存されます。</p>
+    <p class="muted small pc-only">パソコンでは、ファイルをこの画面にドラッグ＆ドロップしても追加できます。</p>
   </div>
   <button class="fab" id="btnAdd" aria-label="追加">＋</button>
   <input type="file" id="filePdf" accept="application/pdf,.pdf" multiple hidden>
@@ -43,7 +44,12 @@
   <header class="topbar viewer-top">
     <button class="icon-btn" id="btnBack" aria-label="戻る">‹</button>
     <div class="doc-title" id="docTitle"></div>
-    <button class="icon-btn" id="btnSearch" aria-label="検索">🔍</button>
+    <div class="zoom-ctl pc-only">
+      <button class="icon-btn sm" id="zoomOut" aria-label="縮小" title="縮小（Ctrl + −）">−</button>
+      <button class="zoom-val" id="zoomVal" title="幅に合わせる（Ctrl + 0）">100%</button>
+      <button class="icon-btn sm" id="zoomIn" aria-label="拡大" title="拡大（Ctrl + ＋）">＋</button>
+    </div>
+    <button class="icon-btn" id="btnSearch" aria-label="検索" title="検索（Ctrl + F）">🔍</button>
     <button class="icon-btn" id="btnShare" aria-label="共有">⤴︎</button>
     <button class="icon-btn" id="btnMore" aria-label="その他">⋯</button>
   </header>
@@ -80,14 +86,14 @@
   <!-- 注釈ツールバー -->
   <div id="annotBar" class="toolbar annot-bar hidden">
     <div class="tool-row">
-      <button class="tool" data-tool="select" title="選択">👆<span>選択</span></button>
-      <button class="tool" data-tool="marker" title="マーカー">🖍<span>マーカー</span></button>
-      <button class="tool" data-tool="pen" title="ペン">✒️<span>ペン</span></button>
-      <button class="tool" data-tool="text" title="テキスト">T<span>テキスト</span></button>
-      <button class="tool" data-tool="rect" title="四角">▢<span>四角</span></button>
-      <button class="tool" data-tool="ellipse" title="丸">◯<span>丸</span></button>
-      <button class="tool" data-tool="arrow" title="矢印">↗<span>矢印</span></button>
-      <button class="tool" data-tool="eraser" title="消しゴム">⌫<span>消しゴム</span></button>
+      <button class="tool" data-tool="select" title="選択（V）">👆<span>選択</span></button>
+      <button class="tool" data-tool="marker" title="マーカー（H）">🖍<span>マーカー</span></button>
+      <button class="tool" data-tool="pen" title="ペン（P）">✒️<span>ペン</span></button>
+      <button class="tool" data-tool="text" title="テキスト（T）">T<span>テキスト</span></button>
+      <button class="tool" data-tool="rect" title="四角（R）">▢<span>四角</span></button>
+      <button class="tool" data-tool="ellipse" title="丸（O）">◯<span>丸</span></button>
+      <button class="tool" data-tool="arrow" title="矢印（A）">↗<span>矢印</span></button>
+      <button class="tool" data-tool="eraser" title="消しゴム（E）">⌫<span>消しゴム</span></button>
     </div>
     <div class="tool-row sub">
       <div id="colorRow" class="colors"></div>
@@ -97,8 +103,8 @@
         <option value="4">太</option>
       </select>
       <label class="pencil-toggle"><input type="checkbox" id="pencilOnly"> Pencilのみ</label>
-      <button class="icon-btn sm" id="btnUndo" aria-label="元に戻す">↶</button>
-      <button class="icon-btn sm" id="btnRedo" aria-label="やり直す">↷</button>
+      <button class="icon-btn sm" id="btnUndo" aria-label="元に戻す" title="元に戻す（Ctrl + Z）">↶</button>
+      <button class="icon-btn sm" id="btnRedo" aria-label="やり直す" title="やり直す（Ctrl + Y）">↷</button>
       <button class="text-btn" id="annotDone">完了</button>
     </div>
   </div>
@@ -165,6 +171,7 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
+<div id="dropZone" class="drop-zone hidden"><div>ここにドロップしてPDFを追加</div></div>
 
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="vendor/fontkit.umd.min.js"></script>
