@@ -1,0 +1,16 @@
+{
+  "name": "PDFノート",
+  "short_name": "PDFノート",
+  "description": "iPhone・iPadで使えるPDFの閲覧・注釈・ページ編集・OCRアプリ。PDFは端末の中だけに保存します。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1f1f23",
+  "theme_color": "#1f1f23",
+  "lang": "ja",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

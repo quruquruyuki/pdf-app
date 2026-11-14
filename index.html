@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1f1f23">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PDFノート">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+<title>PDFノート</title>
+</head>
+<body>
+
+<!-- ===== ホーム（ファイル一覧） ===== -->
+<section id="home" class="screen active">
+  <header class="topbar">
+    <h1 class="brand">PDFノート</h1>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="btnSort" aria-label="並べ替え">⇅</button>
+  </header>
+  <div class="home-search">
+    <input id="homeFilter" type="search" placeholder="ファイルを検索">
+  </div>
+  <main id="fileList" class="file-list"></main>
+  <div id="emptyState" class="empty hidden">
+    <div class="empty-icon">📄</div>
+    <p>右下の＋からPDFを開くか、<br>カメラで書類をスキャンしてください。</p>
+    <p class="muted small">PDFはこの端末の中だけに保存されます。</p>
+  </div>
+  <button class="fab" id="btnAdd" aria-label="追加">＋</button>
+  <input type="file" id="filePdf" accept="application/pdf,.pdf" multiple hidden>
+  <input type="file" id="fileScan" accept="image/*" capture="environment" multiple hidden>
+  <input type="file" id="fileImages" accept="image/*" multiple hidden>
+</section>
+
+<!-- ===== ビューア ===== -->
+<section id="viewer" class="screen">
+  <header class="topbar viewer-top">
+    <button class="icon-btn" id="btnBack" aria-label="戻る">‹</button>
+    <div class="doc-title" id="docTitle"></div>
+    <button class="icon-btn" id="btnSearch" aria-label="検索">🔍</button>
+    <button class="icon-btn" id="btnShare" aria-label="共有">⤴︎</button>
+    <button class="icon-btn" id="btnMore" aria-label="その他">⋯</button>
+  </header>
+
+  <div id="searchBar" class="searchbar hidden">
+    <input id="searchInput" type="search" placeholder="文書内を検索" enterkeyhint="search">
+    <span id="searchCount" class="muted small"></span>
+    <button class="icon-btn sm" id="searchPrev">▲</button>
+    <button class="icon-btn sm" id="searchNext">▼</button>
+    <button class="text-btn" id="searchClose">完了</button>
+  </div>
+
+  <div id="viewerBody" class="viewer-body">
+    <div id="pages" class="pages"></div>
+  </div>
+
+  <div id="pageIndicator" class="page-indicator">1 / 1</div>
+
+  <!-- 選択テキスト用のミニメニュー -->
+  <div id="selMenu" class="sel-menu hidden">
+    <button data-sel="highlight">ハイライト</button>
+    <button data-sel="underline">下線</button>
+    <button data-sel="strike">取り消し線</button>
+    <button data-sel="copy">コピー</button>
+  </div>
+
+  <!-- 選択中の注釈用メニュー -->
+  <div id="annotMenu" class="sel-menu hidden">
+    <button data-am="edit">編集</button>
+    <button data-am="color">色</button>
+    <button data-am="delete" class="danger">削除</button>
+  </div>
+
+  <!-- 注釈ツールバー -->
+  <div id="annotBar" class="toolbar annot-bar hidden">
+    <div class="tool-row">
+      <button class="tool" data-tool="select" title="選択">👆<span>選択</span></button>
+      <button class="tool" data-tool="marker" title="マーカー">🖍<span>マーカー</span></button>
+      <button class="tool" data-tool="pen" title="ペン">✒️<span>ペン</span></button>
+      <button class="tool" data-tool="text" title="テキスト">T<span>テキスト</span></button>
+      <button class="tool" data-tool="rect" title="四角">▢<span>四角</span></button>
+      <button class="tool" data-tool="ellipse" title="丸">◯<span>丸</span></button>
+      <button class="tool" data-tool="arrow" title="矢印">↗<span>矢印</span></button>
+      <button class="tool" data-tool="eraser" title="消しゴム">⌫<span>消しゴム</span></button>
+    </div>
+    <div class="tool-row sub">
+      <div id="colorRow" class="colors"></div>
+      <select id="widthSel" aria-label="太さ">
+        <option value="1">細</option>
+        <option value="2" selected>中</option>
+        <option value="4">太</option>
+      </select>
+      <label class="pencil-toggle"><input type="checkbox" id="pencilOnly"> Pencilのみ</label>
+      <button class="icon-btn sm" id="btnUndo" aria-label="元に戻す">↶</button>
+      <button class="icon-btn sm" id="btnRedo" aria-label="やり直す">↷</button>
+      <button class="text-btn" id="annotDone">完了</button>
+    </div>
+  </div>
+
+  <!-- メインツールバー -->
+  <nav id="mainBar" class="toolbar main-bar">
+    <button class="mtool" id="mAnnot">✏️<span>注釈</span></button>
+    <button class="mtool" id="mPages">▦<span>ページ</span></button>
+    <button class="mtool" id="mSign">✍️<span>署名</span></button>
+    <button class="mtool" id="mOcr">🔤<span>OCR</span></button>
+    <button class="mtool" id="mThumbs">☰<span>一覧</span></button>
+  </nav>
+
+  <!-- サムネイル一覧（ジャンプ用） -->
+  <aside id="thumbPanel" class="panel hidden">
+    <div class="panel-head"><b>ページ一覧</b><div class="spacer"></div><button class="text-btn" data-close="thumbPanel">閉じる</button></div>
+    <div id="thumbGrid" class="thumb-grid"></div>
+  </aside>
+</section>
+
+<!-- ===== ページ整理 ===== -->
+<section id="organizer" class="screen">
+  <header class="topbar">
+    <button class="text-btn" id="orgCancel">キャンセル</button>
+    <div class="doc-title">ページを整理</div>
+    <button class="text-btn strong" id="orgDone">完了</button>
+  </header>
+  <div class="org-hint muted small">タップで選択、長押しして並べ替え</div>
+  <div id="orgGrid" class="org-grid"></div>
+  <nav class="toolbar main-bar">
+    <button class="mtool" id="orgRotL">⟲<span>左に回転</span></button>
+    <button class="mtool" id="orgRotR">⟳<span>右に回転</span></button>
+    <button class="mtool" id="orgDelete">🗑<span>削除</span></button>
+    <button class="mtool" id="orgDup">⧉<span>複製</span></button>
+    <button class="mtool" id="orgInsert">＋<span>挿入</span></button>
+    <button class="mtool" id="orgExtract">⇪<span>抽出</span></button>
+  </nav>
+  <input type="file" id="fileInsert" accept="application/pdf,.pdf,image/*" multiple hidden>
+</section>
+
+<!-- ===== シート/モーダル ===== -->
+<div id="sheetBackdrop" class="backdrop hidden"></div>
+
+<div id="sheet" class="sheet hidden">
+  <div class="sheet-grip"></div>
+  <div id="sheetTitle" class="sheet-title"></div>
+  <div id="sheetBody" class="sheet-body"></div>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <div id="modalTitle" class="modal-title"></div>
+    <div id="modalBody" class="modal-body"></div>
+    <div id="modalActions" class="modal-actions"></div>
+  </div>
+</div>
+
+<div id="progress" class="progress hidden">
+  <div class="progress-card">
+    <div id="progressText">処理中…</div>
+    <div class="bar"><div id="progressBar"></div></div>
+    <button class="text-btn" id="progressCancel">中止</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/fontkit.umd.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
