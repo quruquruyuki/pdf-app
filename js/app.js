@@ -272,6 +272,33 @@ function textRunAt(i, x, y) {
   return { text: text.trim(), x: x1, y: y1, w: x2 - x1, h: y2 - y1, fontName };
 }
 
+// 上下の行との境目（隠す範囲がはみ出さないように）
+function neighborLimits(i, run) {
+  const p = viewer.pages[i];
+  const pr = p.div.getBoundingClientRect();
+  const k = p.w / pr.width;
+  let top = -Infinity, bottom = Infinity;
+  const cy = run.y + run.h / 2;
+  for (const sp of p.div.querySelectorAll('.textLayer span, .ocrLayer span')) {
+    if (sp.classList.contains('markedContent') || !sp.textContent.trim()) continue;
+    const r = sp.getBoundingClientRect();
+    const x = (r.left - pr.left) * k, y = (r.top - pr.top) * k, w = r.width * k, h = r.height * k;
+    if (w < 0.5 || h < 0.5 || h > p.h * 0.3) continue;
+    if (x > run.x + run.w || x + w < run.x) continue; // 横に重ならない文字は関係ない
+    const ncy = y + h / 2;
+    if (Math.abs(ncy - cy) < Math.min(h, run.h) * 0.5) continue; // 同じ行
+    if (ncy < cy) {
+      // 上の行：重なっていたら境目は真ん中
+      const b = y + h;
+      top = Math.max(top, b > run.y ? (b + run.y) / 2 : b);
+    } else {
+      const t = y;
+      bottom = Math.min(bottom, t < run.y + run.h ? (t + run.y + run.h) / 2 : t);
+    }
+  }
+  return { top, bottom };
+}
+
 // PDFの中のフォント情報から、近いフォント（ゴシック/明朝・太字）を選ぶ
 function matchFont(i, fontName) {
   if (!fontName) return 'sans';
@@ -332,11 +359,13 @@ annot.onEditTextAt = async (i, x, y, existing) => {
       return;
     }
     const col = sampleColors(i, run);
-    // 元の文字が少しでも残らないよう、上下は多めに隠す
+    // 元の文字が残らないよう上下は少し広めに隠す。ただし上下の行にはかからないようにする
     const px = Math.max(0.6, run.h * 0.08), py = Math.max(0.8, run.h * 0.2);
+    const { top, bottom } = neighborLimits(i, run);
+    const cy0 = Math.max(run.y - py, top), cy1 = Math.min(run.y + run.h + py, bottom);
     base = {
       type: 'edit', orig: run.text, text: run.text,
-      x: +(run.x - px).toFixed(2), y: +(run.y - py).toFixed(2), w: +(run.w + px * 2).toFixed(2), h: +(run.h + py * 2).toFixed(2),
+      x: +(run.x - px).toFixed(2), y: +cy0.toFixed(2), w: +(run.w + px * 2).toFixed(2), h: +(cy1 - cy0).toFixed(2),
       tx: +run.x.toFixed(2), ty: +(run.y - run.h * 0.04).toFixed(2), size: +(run.h * 0.95).toFixed(2),
       color: col.fg, bg: col.bg, rot: 0, font: matchFont(i, run.fontName),
     };

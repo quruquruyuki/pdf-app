@@ -219,4 +219,5 @@ img { -webkit-touch-callout: none; -webkit-user-drag: none; }
 
 .edit-bar .edit-hint { padding: 10px 14px 4px; font-size: 14px; color: var(--muted); }
 .edit-bar #editDone { margin-left: auto; }
-#mEdit { font-size: 22px; }
+#mEdit .ic-edit { margin-bottom: 1px; }
+.edit-hint .ic-edit { vertical-align: -3px; margin-right: 4px; }
