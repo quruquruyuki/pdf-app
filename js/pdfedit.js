@@ -1,18 +1,19 @@
 // pdf-lib を使った書き出し・ページ編集
 import { displayToPdfMapper } from './pdfcore.js';
 import { subsetFont } from './fontsubset.js';
+import { fontOf } from './fonts.js';
 
 const { PDFDocument, rgb, degrees, LineCapStyle, BlendMode, StandardFonts, pushGraphicsState, popGraphicsState, setCharacterSqueeze, setTextRenderingMode, TextRenderingMode } = window.PDFLib;
 
-let fontBytesP = null;
-function loadJpFont() {
-  if (!fontBytesP) {
-    fontBytesP = fetch(new URL('../vendor/fonts/NotoSansJP-Regular.ttf', import.meta.url)).then(r => {
+const fontBytes = {};
+function loadFontFile(file) {
+  if (!fontBytes[file]) {
+    fontBytes[file] = fetch(new URL('../vendor/fonts/' + file, import.meta.url)).then(r => {
       if (!r.ok) throw new Error('フォントを読み込めませんでした');
       return r.arrayBuffer();
-    });
+    }).catch(e => { delete fontBytes[file]; throw e; });
   }
-  return fontBytesP;
+  return fontBytes[file];
 }
 
 export function hexToRgb(hex) {
@@ -100,18 +101,22 @@ export async function exportPdf(bytes, annots, ocr, { includeOcr = true } = {}) 
   const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const pages = pdf.getPages();
 
-  // 使う文字を集めて、その文字だけのフォントを埋め込む
-  let chars = '';
+  // フォントごとに使う文字を集めて、その文字だけのフォントを埋め込む
+  const need = {};
+  const addChars = (key, t) => { need[key] = (need[key] || '') + (t || ''); };
   pages.forEach((_, i) => {
-    for (const a of annots[i] || []) if (a.type === 'text' || a.type === 'edit') chars += a.text || '';
-    if (includeOcr && ocr[i]) for (const w of (ocr[i].lines || ocr[i].words || [])) chars += w.t || '';
+    for (const a of annots[i] || []) if (a.type === 'text' || a.type === 'edit') addChars(a.font || 'sans', a.text);
+    if (includeOcr && ocr[i]) for (const w of (ocr[i].lines || ocr[i].words || [])) addChars('sans', w.t);
   });
-  let font = null;
-  if (chars.trim()) {
+  const fonts = {};
+  const wasm = new URL('../vendor/harfbuzz/harfbuzz-subset.wasm', import.meta.url).href;
+  for (const [key, chars] of Object.entries(need)) {
+    if (!chars.trim()) continue;
     pdf.registerFontkit(window.fontkit);
-    const sub = await subsetFont(await loadJpFont(), chars, new URL('../vendor/harfbuzz/harfbuzz-subset.wasm', import.meta.url).href);
-    font = await pdf.embedFont(sub, { subset: false });
+    const sub = await subsetFont(await loadFontFile(fontOf(key).file), chars, wasm);
+    fonts[key] = await pdf.embedFont(sub, { subset: false });
   }
+  const font = fonts;
 
   pages.forEach((page, i) => {
     const rot = page.getRotation().angle || 0;
@@ -119,7 +124,7 @@ export async function exportPdf(bytes, annots, ocr, { includeOcr = true } = {}) 
     const map = displayToPdfMapper([cb.x, cb.y, cb.width, cb.height], rot);
     const list = annots[i] || [];
     for (const a of list) drawAnnot(page, a, map, rot, font);
-    if (includeOcr && ocr[i]) drawOcr(page, ocr[i].lines || ocr[i].words || [], map, rot, font);
+    if (includeOcr && ocr[i]) drawOcr(page, ocr[i].lines || ocr[i].words || [], map, rot, font.sans);
   });
 
   pdf.setModificationDate(new Date());
@@ -162,7 +167,8 @@ function rotVec(vx, vy, deg) {
   return [vx * Math.cos(r) - vy * Math.sin(r), vx * Math.sin(r) + vy * Math.cos(r)];
 }
 
-function drawAnnot(page, a, map, rot, font) {
+function drawAnnot(page, a, map, rot, fonts) {
+  const font = (a.type === 'text' || a.type === 'edit') ? (fonts[a.font || 'sans'] || fonts.sans) : null;
   const color = hexToRgb(a.color);
   const stroke = (pts, width, opts = {}) => {
     if (pts.length < 2) pts = [pts[0], [pts[0][0] + 0.01, pts[0][1] + 0.01]];

@@ -205,8 +205,17 @@ export class Viewer {
     p.div.insertBefore(div, p.svg);
     p.textLayer = div;
     try {
-      const tl = new lib.TextLayer({ textContentSource: p.page.streamTextContent(), container: div, viewport: p.page.getViewport({ scale: 1 }) });
+      const tc = await p.page.getTextContent();
+      p.textStyles = tc.styles;
+      const tl = new lib.TextLayer({ textContentSource: tc, container: div, viewport: p.page.getViewport({ scale: 1 }) });
       await tl.render();
+      // どの文字がどのフォントかを覚えておく（文字編集で使う）
+      let k = 0;
+      for (const it of tc.items) {
+        if (it.str === undefined) continue;
+        const d = tl.textDivs[k++];
+        if (d) d.dataset.font = it.fontName;
+      }
       const end = document.createElement('div');
       end.className = 'endOfContent';
       div.append(end);

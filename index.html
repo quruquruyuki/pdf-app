@@ -89,7 +89,6 @@
       <button class="tool" data-tool="select" title="選択（V）">👆<span>選択</span></button>
       <button class="tool" data-tool="marker" title="マーカー（H）">🖍<span>マーカー</span></button>
       <button class="tool" data-tool="pen" title="ペン（P）">✒️<span>ペン</span></button>
-      <button class="tool" data-tool="edittext" title="文字を編集（X）">✎<span>文字編集</span></button>
       <button class="tool" data-tool="text" title="テキスト（T）">T<span>テキスト</span></button>
       <button class="tool" data-tool="rect" title="四角（R）">▢<span>四角</span></button>
       <button class="tool" data-tool="ellipse" title="丸（O）">◯<span>丸</span></button>
@@ -110,9 +109,20 @@
     </div>
   </div>
 
+  <!-- 文字編集バー -->
+  <div id="editBar" class="toolbar edit-bar hidden">
+    <div class="edit-hint">✎ 直したい文字をタップしてください</div>
+    <div class="tool-row sub">
+      <button class="icon-btn sm" id="editUndo" aria-label="元に戻す" title="元に戻す（Ctrl + Z）">↶</button>
+      <button class="icon-btn sm" id="editRedo" aria-label="やり直す" title="やり直す（Ctrl + Y）">↷</button>
+      <button class="text-btn" id="editDone">完了</button>
+    </div>
+  </div>
+
   <!-- メインツールバー -->
   <nav id="mainBar" class="toolbar main-bar">
     <button class="mtool" id="mAnnot">✏️<span>注釈</span></button>
+    <button class="mtool" id="mEdit" title="文字編集（X）">✎<span>文字編集</span></button>
     <button class="mtool" id="mPages">▦<span>ページ</span></button>
     <button class="mtool" id="mSign">✍️<span>署名</span></button>
     <button class="mtool" id="mOcr">🔤<span>OCR</span></button>

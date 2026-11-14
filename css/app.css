@@ -81,6 +81,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .edit-form .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .edit-form input[type=color] { width: 44px; height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: none; }
 .edit-form input[type=number] { width: 80px; }
+.edit-form select { padding: 7px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+.edit-form textarea { font-size: 16px; }
 .annot-layer .hit { pointer-events: none; }
 .annot-layer.selecting .hit { pointer-events: auto; cursor: move; }
 .annot-layer .sel-box { fill: none; stroke: var(--sel); stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; stroke-width: 1.5; }
@@ -214,3 +216,7 @@ input, select, textarea { font: inherit; color: inherit; }
 img { -webkit-touch-callout: none; -webkit-user-drag: none; }
 .org-item img, .org-item .imgwrap, .thumb img { pointer-events: none; }
 .org-grid.dragging-active { touch-action: none; }
+
+.edit-bar .edit-hint { padding: 10px 14px 4px; font-size: 14px; color: var(--muted); }
+.edit-bar #editDone { margin-left: auto; }
+#mEdit { font-size: 22px; }

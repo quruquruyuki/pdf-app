@@ -1,6 +1,7 @@
 // 注釈（マーカー・ペン・テキスト・図形・署名）
 import { uid } from './db.js';
 import { arrowHead } from './pdfedit.js';
+import { fontOf } from './fonts.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 
@@ -35,7 +36,8 @@ function smoothPath(pts) {
 let measureCtx = null;
 function textBox(a) {
   if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
-  measureCtx.font = `${a.size}px "Hiragino Sans", "Noto Sans JP", sans-serif`;
+  const f = fontOf(a.font);
+  measureCtx.font = `${f.weight} ${a.size}px ${f.css}`;
   const lines = String(a.text || '').split('\n');
   const w = Math.max(a.size, ...lines.map(l => measureCtx.measureText(l).width));
   const h = a.size * 1.3 * lines.length;
@@ -312,7 +314,8 @@ export class Annotator {
         break;
       case 'edit': {
         g.append(svg('rect', { x: a.x, y: a.y, width: a.w, height: a.h, fill: a.bg || '#ffffff' }));
-        const t = svg('text', { x: a.tx, y: a.ty, fill: a.color, 'font-size': a.size, 'font-family': '"Hiragino Sans","Noto Sans JP",sans-serif' });
+        const ff = fontOf(a.font);
+        const t = svg('text', { x: a.tx, y: a.ty, fill: a.color, 'font-size': a.size, 'font-family': ff.css, 'font-weight': ff.weight });
         if (a.rot) t.setAttribute('transform', `rotate(${a.rot} ${a.tx} ${a.ty})`);
         String(a.text || '').split('\n').forEach((line, k) => {
           const ts = svg('tspan', { x: a.tx, y: a.ty + a.size * 0.88 + k * a.size * 1.3 });
@@ -323,7 +326,8 @@ export class Annotator {
         break;
       }
       case 'text': {
-        const t = svg('text', { x: a.x, y: a.y, fill: a.color, 'font-size': a.size, 'font-family': '"Hiragino Sans","Noto Sans JP",sans-serif' });
+        const ff = fontOf(a.font);
+        const t = svg('text', { x: a.x, y: a.y, fill: a.color, 'font-size': a.size, 'font-family': ff.css, 'font-weight': ff.weight });
         if (a.rot) t.setAttribute('transform', `rotate(${a.rot} ${a.x} ${a.y})`);
         String(a.text || '').split('\n').forEach((line, k) => {
           const ts = svg('tspan', { x: a.x, y: a.y + a.size * 0.88 + k * a.size * 1.3 });

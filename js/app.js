@@ -7,6 +7,7 @@ import { Annotator, COLORS, bbox } from './annot.js';
 import { ocrPage, pageHasText } from './ocr.js';
 import { chooseSignature } from './sign.js';
 import { openOrganizer, initOrganizerUI } from './organizer.js';
+import { FONTS, guessFont } from './fonts.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const viewer = new Viewer($('#viewerBody'), $('#pages'));
@@ -172,6 +173,7 @@ async function openDoc(id) {
     $('#docTitle').textContent = doc.name;
     closeSearch();
     setAnnotMode(false);
+    setEditMode(false);
     await viewer.load(S.pdf, { ocr: S.ocr });
     annot.load((a && a.pages) || {});
     annot.attach();
@@ -223,7 +225,7 @@ function textRunAt(i, x, y) {
     .filter(sp => !sp.classList.contains('markedContent') && sp.textContent && sp.textContent.trim())
     .map(sp => {
       const r = sp.getBoundingClientRect();
-      return { sp, t: sp.textContent, x: (r.left - pr.left) * k, y: (r.top - pr.top) * k, w: r.width * k, h: r.height * k };
+      return { sp, t: sp.textContent, font: sp.dataset.font || null, x: (r.left - pr.left) * k, y: (r.top - pr.top) * k, w: r.width * k, h: r.height * k };
     })
     .filter(r => r.w > 0.5 && r.h > 0.5 && r.h < p.h * 0.3);
   if (!spans.length) return null;
@@ -263,7 +265,21 @@ function textRunAt(i, x, y) {
   });
   const x1 = Math.min(...run.map(r => r.x)), y1 = Math.min(...run.map(r => r.y));
   const x2 = Math.max(...run.map(r => r.x + r.w)), y2 = Math.max(...run.map(r => r.y + r.h));
-  return { text: text.trim(), x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+  // 一番多く使われているフォント
+  const cnt = {};
+  for (const r of run) if (r.font) cnt[r.font] = (cnt[r.font] || 0) + r.t.length;
+  const fontName = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || null;
+  return { text: text.trim(), x: x1, y: y1, w: x2 - x1, h: y2 - y1, fontName };
+}
+
+// PDFの中のフォント情報から、近いフォント（ゴシック/明朝・太字）を選ぶ
+function matchFont(i, fontName) {
+  if (!fontName) return 'sans';
+  const p = viewer.pages[i];
+  let info = {};
+  try { info = p.page.commonObjs.get(fontName) || {}; } catch (_) {}
+  const family = (p.textStyles && p.textStyles[fontName] && p.textStyles[fontName].fontFamily) || '';
+  return guessFont({ name: info.name || '', family, bold: !!info.bold, black: !!info.black });
 }
 
 // 文字色と背景色を、表示中のページ画像から読み取る
@@ -316,27 +332,34 @@ annot.onEditTextAt = async (i, x, y, existing) => {
       return;
     }
     const col = sampleColors(i, run);
-    const pad = Math.max(0.6, run.h * 0.08);
+    // 元の文字が少しでも残らないよう、上下は多めに隠す
+    const px = Math.max(0.6, run.h * 0.08), py = Math.max(0.8, run.h * 0.2);
     base = {
       type: 'edit', orig: run.text, text: run.text,
-      x: +(run.x - pad).toFixed(2), y: +(run.y - pad).toFixed(2), w: +(run.w + pad * 2).toFixed(2), h: +(run.h + pad * 2).toFixed(2),
+      x: +(run.x - px).toFixed(2), y: +(run.y - py).toFixed(2), w: +(run.w + px * 2).toFixed(2), h: +(run.h + py * 2).toFixed(2),
       tx: +run.x.toFixed(2), ty: +(run.y - run.h * 0.04).toFixed(2), size: +(run.h * 0.95).toFixed(2),
-      color: col.fg, bg: col.bg, rot: 0,
+      color: col.fg, bg: col.bg, rot: 0, font: matchFont(i, run.fontName),
     };
   }
   const ta = h('textarea', { rows: 3 });
   ta.value = base.text;
+  const applyPreview = () => { const f = FONTS[fontSel.value] || FONTS.sans; ta.style.fontFamily = f.css; ta.style.fontWeight = f.weight; };
   const size = h('input', { type: 'number', min: 4, max: 200, step: 0.5, value: (+base.size).toFixed(1) });
   const fg = h('input', { type: 'color', value: base.color });
   const bg = h('input', { type: 'color', value: base.bg || '#ffffff' });
+  const fontSel = h('select', {}, ...Object.entries(FONTS).map(([k, f]) => h('option', { value: k, selected: (base.font || 'sans') === k }, f.label)));
   const form = h('div', { class: 'edit-form' },
     h('label', {}, '元の文字'), h('div', { class: 'orig' }, base.orig || ''),
     h('label', {}, '新しい文字'), ta,
     h('div', { class: 'row' },
-      h('span', { class: 'small' }, '大きさ'), size,
+      h('span', { class: 'small' }, 'フォント'), fontSel,
+      h('span', { class: 'small' }, '大きさ'), size),
+    h('div', { class: 'row', style: { marginTop: '8px' } },
       h('span', { class: 'small' }, '文字色'), fg,
       h('span', { class: 'small' }, '背景色'), bg),
-    h('p', { class: 'muted small' }, '元の文字を背景色で隠して、新しい文字を重ねます。'));
+    h('p', { class: 'muted small' }, 'フォントは元の文字に近いものを自動で選んでいます。元の文字を背景色で隠して、新しい文字を重ねます。'));
+  fontSel.addEventListener('change', applyPreview);
+  applyPreview();
   const v = await modal(existing ? '文字の編集を変更' : '文字を編集', form, [
     { label: 'キャンセル', value: 'cancel' },
     existing ? { label: '元に戻す', value: 'revert' } : { label: '文字を消す', value: 'erase' },
@@ -344,7 +367,7 @@ annot.onEditTextAt = async (i, x, y, existing) => {
   ]);
   if (v === 'cancel' || !v) return;
   if (v === 'revert') { annot.remove(i, existing.id); return; }
-  const next = { ...base, text: v === 'erase' ? '' : ta.value, size: Math.max(4, +size.value || base.size), color: fg.value, bg: bg.value };
+  const next = { ...base, text: v === 'erase' ? '' : ta.value, size: Math.max(4, +size.value || base.size), color: fg.value, bg: bg.value, font: fontSel.value };
   if (existing) annot.replace(i, existing.id, next);
   else annot.add(i, next);
 };
@@ -359,7 +382,16 @@ async function closeViewer() {
 }
 
 // ---------- 注釈モード ----------
+function setEditMode(on) {
+  if (on) $('#annotBar').classList.add('hidden');
+  $('#editBar').classList.toggle('hidden', !on);
+  $('#mainBar').classList.toggle('hidden', on);
+  annot.setTool(on ? 'edittext' : null);
+  if (on) hideMenus();
+}
+
 function setAnnotMode(on) {
+  $('#editBar').classList.add('hidden');
   $('#annotBar').classList.toggle('hidden', !on);
   $('#mainBar').classList.toggle('hidden', on);
   $('#mAnnot').classList.toggle('on', on);
@@ -390,13 +422,15 @@ function bindAnnotBar() {
     annot.setTool(b.dataset.tool);
     annot.lastTool = b.dataset.tool;
     refreshToolUI();
-    if (b.dataset.tool === 'edittext') toast('編集したい文字をタップしてください', 2500);
   });
   $('#widthSel').onchange = (e) => { annot.widthLevel = +e.target.value; };
   $('#pencilOnly').onchange = (e) => { annot.pencilOnly = e.target.checked; annot._applyMode(); db.kvSet('pencilOnly', e.target.checked); };
   $('#btnUndo').onclick = () => annot.undo();
   $('#btnRedo').onclick = () => annot.redo();
   $('#annotDone').onclick = () => setAnnotMode(false);
+  $('#editUndo').onclick = () => annot.undo();
+  $('#editRedo').onclick = () => annot.redo();
+  $('#editDone').onclick = () => setEditMode(false);
 }
 
 // ---------- 選択中の注釈のメニュー ----------
@@ -915,6 +949,7 @@ function bindDesktop() {
         if (!$('#searchBar').classList.contains('hidden')) closeSearch();
         else if (annot.selected) annot.deselect();
         else if (!$('#thumbPanel').classList.contains('hidden')) $('#thumbPanel').classList.add('hidden');
+        else if (annot.tool === 'edittext') setEditMode(false);
         else if (annot.tool) setAnnotMode(false);
       }
       return;
@@ -936,7 +971,8 @@ function bindDesktop() {
     else if (k === 'end') { e.preventDefault(); viewer.scrollToPage(viewer.pages.length - 1); }
     else {
       // 1文字キーでツール切り替え（注釈モード中）
-      const map = { v: 'select', h: 'marker', p: 'pen', t: 'text', x: 'edittext', r: 'rect', o: 'ellipse', a: 'arrow', e: 'eraser' };
+      if (k === 'x') { setEditMode(true); return; }
+      const map = { v: 'select', h: 'marker', p: 'pen', t: 'text', r: 'rect', o: 'ellipse', a: 'arrow', e: 'eraser' };
       if (map[k]) {
         if ($('#annotBar').classList.contains('hidden')) setAnnotMode(true);
         annot.setTool(map[k]); annot.lastTool = map[k]; refreshToolUI();
@@ -955,6 +991,7 @@ function bindViewer() {
   $('#btnShare').onclick = () => shareDoc(S.doc);
   $('#btnMore').onclick = moreMenu;
   $('#mAnnot').onclick = () => setAnnotMode($('#annotBar').classList.contains('hidden'));
+  $('#mEdit').onclick = () => setEditMode(true);
   $('#mPages').onclick = organize;
   $('#mSign').onclick = sign;
   $('#mOcr').onclick = ocrMenu;
