@@ -1,7 +1,7 @@
 import { db, uid, requestPersist } from './db.js';
 import { $, $$, h, toast, sheet, modal, confirmBox, promptBox, progress, fmtSize, fmtDate } from './ui.js';
 import { openPdf, renderPageImage, isPdf } from './pdfcore.js';
-import { imagesToPdf, exportPdf } from './pdfedit.js';
+import { imagesToPdf, exportPdf, buildFromPlan, pdfPageCount } from './pdfedit.js';
 import { Viewer } from './viewer.js';
 import { Annotator, COLORS, bbox } from './annot.js';
 import { ocrPage, pageHasText } from './ocr.js';
@@ -55,6 +55,7 @@ async function fileMenu(d) {
   const v = await sheet(d.name, [
     { icon: '✏️', label: '名前を変更', value: 'rename' },
     { icon: '⧉', label: '複製', value: 'dup' },
+    { icon: '🔗', label: 'ほかのPDFと結合', value: 'merge' },
     { icon: '⤴︎', label: '共有・保存', desc: '注釈を含めたPDFを書き出します', value: 'share' },
     { icon: '🗑', label: '削除', value: 'delete', danger: true },
   ]);
@@ -71,6 +72,8 @@ async function fileMenu(d) {
     if (o) await db.put('ocr', { id, pages: o.pages });
     await db.put('docs', { ...d, id, name: d.name + ' のコピー', created: Date.now(), updated: Date.now() });
     renderList();
+  } else if (v === 'merge') {
+    await mergeFlow([d.id]);
   } else if (v === 'share') {
     await shareDoc(d, true);
   } else if (v === 'delete') {
@@ -78,6 +81,99 @@ async function fileMenu(d) {
       await Promise.all(['docs', 'files', 'annots', 'ocr'].map(s => db.del(s, d.id)));
       renderList();
     }
+  }
+}
+
+// =====================================================================
+// PDFの結合
+// =====================================================================
+async function mergeFlow(preselect = []) {
+  const docs = (await db.all('docs')).sort((a, b) => b.updated - a.updated);
+  const items = docs.map(d => ({ key: d.id, name: d.name, pages: d.pages, thumb: d.thumb, doc: d }));
+  const order = preselect.filter(id => items.some(i => i.key === id));
+  let extraN = 0;
+
+  const list = h('div', { class: 'merge-list' });
+  const count = h('div', { class: 'muted small merge-count' });
+  const render = () => {
+    list.innerHTML = '';
+    for (const it of items) {
+      const n = order.indexOf(it.key);
+      const row = h('button', { class: 'merge-row' + (n >= 0 ? ' on' : ''), onclick: () => {
+        const k = order.indexOf(it.key);
+        if (k >= 0) order.splice(k, 1); else order.push(it.key);
+        render();
+      } },
+        h('span', { class: 'merge-badge' }, n >= 0 ? String(n + 1) : ''),
+        h('span', { class: 'merge-thumb', style: { backgroundImage: it.thumb ? `url(${it.thumb})` : '' } }),
+        h('span', { class: 'merge-name' }, it.name, h('span', { class: 'desc' }, it.file ? 'ファイルから追加' : `${it.pages}ページ`)));
+      list.append(row);
+    }
+    const total = order.reduce((s, k) => s + (items.find(i => i.key === k).pages || 0), 0);
+    count.textContent = order.length ? `${order.length}個のPDF・合計${total}ページ（数字の順につなげます）` : 'つなげたい順にタップしてください';
+  };
+  const fileInput = h('input', { type: 'file', accept: 'application/pdf,.pdf,image/*', multiple: true, hidden: true });
+  fileInput.onchange = async () => {
+    const files = [...fileInput.files];
+    fileInput.value = '';
+    for (const f of files) {
+      try {
+        const isImg = f.type.startsWith('image/');
+        const bytes = isImg ? await imagesToPdf([f]) : await f.arrayBuffer();
+        if (!isPdf(bytes)) { toast(`${f.name} はPDFではありません`); continue; }
+        const key = 'f' + (++extraN);
+        let thumb = null, pages = 0;
+        try { const pd = await openPdf(bytes); pages = pd.numPages; thumb = await renderPageImage(pd, 1, 120); pd.destroy(); }
+        catch (_) { pages = await pdfPageCount(bytes); }
+        items.unshift({ key, name: f.name.replace(/\.pdf$/i, ''), pages, thumb, bytes, file: true });
+        order.push(key);
+      } catch (e) { toast(`${f.name} を読み込めませんでした`); }
+    }
+    render();
+  };
+  const withAnnots = h('input', { type: 'checkbox', checked: true });
+  const body = h('div', {},
+    count,
+    h('button', { class: 'text-btn', onclick: () => fileInput.click() }, '＋ 「ファイル」から追加'),
+    fileInput,
+    list,
+    h('label', { class: 'field-row' }, withAnnots, '注釈・OCRの文字も含める'));
+  render();
+  const ok = await modal('PDFを結合', body, [
+    { label: 'キャンセル', value: false },
+    { label: '結合する', value: true, primary: true, validate: () => { if (order.length < 2) { toast('2つ以上選んでください'); return false; } return true; } },
+  ]);
+  if (!ok) return;
+  const first = items.find(i => i.key === order[0]);
+  const name = await promptBox('新しいPDFの名前', `${first.name} ほか（結合）`);
+  if (name == null) return;
+  progress.show('結合しています…');
+  try {
+    const sources = {}, plan = [];
+    for (let k = 0; k < order.length; k++) {
+      const it = items.find(i => i.key === order[k]);
+      progress.set(k / order.length, `結合しています…（${k + 1}/${order.length}）`);
+      let bytes;
+      if (it.file) bytes = it.bytes;
+      else {
+        bytes = (await db.get('files', it.key)).bytes;
+        if (withAnnots.checked) bytes = await buildExport(it.doc, bytes, true);
+      }
+      const key = 's' + k;
+      sources[key] = bytes;
+      const n = await pdfPageCount(bytes);
+      for (let p = 0; p < n; p++) plan.push({ kind: 'page', src: key, index: p, rotate: 0 });
+    }
+    const out = await buildFromPlan(plan, sources);
+    progress.hide();
+    const d = await addDocument(out, (name.trim() || '結合したPDF'));
+    toast(`${order.length}個のPDFを結合しました（${plan.length}ページ）`, 3000);
+    await renderList();
+    openDoc(d.id);
+  } catch (e) {
+    console.error(e);
+    progress.hide();
+    toast('結合できませんでした: ' + e.message, 4000);
   }
 }
 
@@ -124,10 +220,12 @@ function bindHome() {
       { icon: '📄', label: 'PDFを開く', desc: '「ファイル」アプリやiCloud Driveから', value: 'pdf' },
       { icon: '📷', label: '書類をスキャン', desc: 'カメラで撮影してPDFにします', value: 'scan' },
       { icon: '🖼', label: '写真からPDFを作成', desc: '複数枚を1つのPDFにまとめます', value: 'img' },
+      { icon: '🔗', label: 'PDFを結合', desc: '複数のPDFを1つにまとめます', value: 'merge' },
     ]);
     if (v === 'pdf') $('#filePdf').click();
     if (v === 'scan') $('#fileScan').click();
     if (v === 'img') $('#fileImages').click();
+    if (v === 'merge') mergeFlow();
   };
   $('#filePdf').onchange = (e) => { importFiles([...e.target.files], false); e.target.value = ''; };
   $('#fileImages').onchange = (e) => { importFiles([...e.target.files], true); e.target.value = ''; };
