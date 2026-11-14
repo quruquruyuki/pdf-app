@@ -75,9 +75,12 @@ function bindItem(el, it) {
   let timer = null, start = null, dragging = false, ghost = null;
   el.addEventListener('pointerdown', (e) => {
     start = { x: e.clientX, y: e.clientY };
+    // 指が他のページの上に移っても、このページにイベントが届くようにする
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
     timer = setTimeout(() => {
       dragging = true;
       el.classList.add('dragging');
+      $('#orgGrid').classList.add('dragging-active');
       ghost = el.querySelector('img').cloneNode();
       ghost.className = 'org-ghost';
       document.body.append(ghost);
@@ -89,25 +92,27 @@ function bindItem(el, it) {
   el.addEventListener('pointermove', (e) => {
     if (!start) return;
     if (!dragging) {
-      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) { clearTimeout(timer); start = null; }
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) { clearTimeout(timer); start = null; }
       return;
     }
     moveGhost(e.clientX, e.clientY);
-    document.querySelectorAll('.org-drop-before').forEach(x => x.classList.remove('org-drop-before'));
+    document.querySelectorAll('.org-drop-before, .org-drop-after').forEach(x => x.classList.remove('org-drop-before', 'org-drop-after'));
     const t = targetAt(e.clientX, e.clientY);
-    if (t && t !== el) t.classList.add('org-drop-before');
+    if (t && t !== el) t.classList.add(isAfter(t, e.clientX) ? 'org-drop-after' : 'org-drop-before');
   });
+  el.addEventListener('touchstart', () => {}, { passive: true });
   // 長押しドラッグ中はスクロールさせない
   el.addEventListener('touchmove', (e) => { if (dragging) e.preventDefault(); }, { passive: false });
   el.addEventListener('pointerup', (e) => {
     clearTimeout(timer);
     if (dragging) {
       const t = targetAt(e.clientX, e.clientY);
+      const after = t ? isAfter(t, e.clientX) : false;
       finishDrag();
       if (t && t !== el) {
         const from = state.items.indexOf(it);
         state.items.splice(from, 1);
-        const to = state.items.findIndex(x => x.key === t.dataset.key);
+        const to = state.items.findIndex(x => x.key === t.dataset.key) + (after ? 1 : 0);
         state.items.splice(to, 0, it);
         render();
       }
@@ -123,10 +128,17 @@ function bindItem(el, it) {
   function finishDrag() {
     dragging = false;
     el.classList.remove('dragging');
+    $('#orgGrid').classList.remove('dragging-active');
     if (ghost) ghost.remove();
     ghost = null;
-    document.querySelectorAll('.org-drop-before').forEach(x => x.classList.remove('org-drop-before'));
+    document.querySelectorAll('.org-drop-before, .org-drop-after').forEach(x => x.classList.remove('org-drop-before', 'org-drop-after'));
   }
+}
+
+// ページの右半分に落としたら、そのページの後ろに入れる
+function isAfter(t, x) {
+  const r = t.getBoundingClientRect();
+  return x > r.left + r.width / 2;
 }
 
 function targetAt(x, y) {
