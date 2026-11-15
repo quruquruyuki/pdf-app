@@ -156,6 +156,70 @@
   <input type="file" id="fileInsert" accept="application/pdf,.pdf,image/*" multiple hidden>
 </section>
 
+<!-- ===== スキャン：カメラ ===== -->
+<section id="scanCam" class="screen scan-screen">
+  <div class="scan-top">
+    <button class="scan-btn" id="scanClose" aria-label="閉じる">✕</button>
+    <div class="spacer"></div>
+    <button class="scan-chip" id="scanAuto">自動撮影：オン</button>
+  </div>
+  <div class="scan-stage" id="scanStage">
+    <video id="scanVideo" playsinline muted autoplay></video>
+    <canvas id="scanOverlay"></canvas>
+    <div id="scanMsg" class="scan-msg">書類全体が入るように写してください</div>
+  </div>
+  <div class="scan-bottom">
+    <button class="scan-side" id="scanFromPhotos">🖼<span>写真から</span></button>
+    <button class="scan-shutter" id="scanShutter" aria-label="撮影"><span></span></button>
+    <button class="scan-side" id="scanToReview"><img id="scanLastThumb" alt=""><span id="scanCount">0枚</span></button>
+  </div>
+  <input type="file" id="scanFiles" accept="image/*" multiple hidden>
+  <input type="file" id="scanNative" accept="image/*" capture="environment" hidden>
+</section>
+
+<!-- ===== スキャン：確認・補正 ===== -->
+<section id="scanReview" class="screen scan-review">
+  <header class="topbar">
+    <button class="text-btn" id="revBack">撮影に戻る</button>
+    <div class="doc-title" id="revTitle">1 / 1</div>
+    <button class="text-btn strong" id="revSave">PDFを保存</button>
+  </header>
+  <div class="rev-main"><img id="revImg" alt=""><div id="revBusy" class="rev-busy hidden">処理中…</div></div>
+  <div class="rev-filters" id="revFilters">
+    <button data-f="auto">自動補正</button>
+    <button data-f="color">カラー</button>
+    <button data-f="gray">グレー</button>
+    <button data-f="bw">白黒</button>
+    <button data-f="none">元の写真</button>
+  </div>
+  <div class="rev-thumbs" id="revThumbs"></div>
+  <nav class="toolbar main-bar rev-bar">
+    <button class="mtool" id="revCrop">⌗<span>切り抜き</span></button>
+    <button class="mtool" id="revRotate">⟳<span>回転</span></button>
+    <button class="mtool" id="revRetake">📷<span>撮り直し</span></button>
+    <button class="mtool" id="revMoveL">◀︎<span>前へ</span></button>
+    <button class="mtool" id="revMoveR">▶︎<span>後ろへ</span></button>
+    <button class="mtool" id="revDelete">🗑<span>削除</span></button>
+  </nav>
+</section>
+
+<!-- ===== スキャン：切り抜き ===== -->
+<section id="scanCrop" class="screen scan-screen">
+  <div class="scan-top">
+    <button class="text-btn light" id="cropCancel">キャンセル</button>
+    <div class="spacer"></div>
+    <button class="scan-chip" id="cropDetect">自動検出</button>
+    <button class="scan-chip" id="cropFull">全体</button>
+    <div class="spacer"></div>
+    <button class="text-btn strong" id="cropOk">完了</button>
+  </div>
+  <div class="crop-stage" id="cropStage">
+    <canvas id="cropCanvas"></canvas>
+    <canvas id="cropLoupe" class="crop-loupe hidden" width="120" height="120"></canvas>
+  </div>
+  <div class="scan-msg static">四隅の丸を動かして、書類のふちに合わせてください</div>
+</section>
+
 <!-- ===== シート/モーダル ===== -->
 <div id="sheetBackdrop" class="backdrop hidden"></div>
 

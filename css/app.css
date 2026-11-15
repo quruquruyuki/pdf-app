@@ -232,3 +232,45 @@ img { -webkit-touch-callout: none; -webkit-user-drag: none; }
 .merge-thumb { flex: none; width: 36px; height: 48px; background: #fff center / contain no-repeat; box-shadow: 0 0 0 1px var(--line); border-radius: 3px; }
 .merge-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; word-break: break-all; }
 .merge-name .desc { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+
+/* ---------- スキャン ---------- */
+.scan-screen { background: #000; color: #fff; }
+.scan-top { flex: none; display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 8px) 12px 8px; z-index: 3; }
+.scan-btn { width: 40px; height: 40px; border-radius: 20px; background: rgba(255,255,255,.15); font-size: 18px; }
+.scan-chip { padding: 8px 12px; border-radius: 16px; background: rgba(255,255,255,.15); font-size: 13px; }
+.scan-chip.on { background: var(--accent); }
+.text-btn.light { color: #fff; }
+.scan-stage, .crop-stage { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; touch-action: none; }
+#scanVideo { width: 100%; height: 100%; object-fit: contain; }
+#scanOverlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.scan-msg { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 7px 14px; border-radius: 14px; font-size: 13px; white-space: nowrap; }
+.scan-msg.static { position: static; transform: none; text-align: center; margin: 8px auto calc(14px + var(--safe-bottom)); white-space: normal; }
+.scan-bottom { flex: none; display: flex; align-items: center; justify-content: space-around; padding: 14px 10px calc(18px + var(--safe-bottom)); }
+.scan-shutter { width: 74px; height: 74px; border-radius: 37px; border: 4px solid #fff; display: flex; align-items: center; justify-content: center; }
+.scan-shutter span { width: 58px; height: 58px; border-radius: 29px; background: #fff; transition: transform .1s; }
+.scan-shutter:active span { transform: scale(.88); }
+.scan-shutter.busy span { background: #aaa; }
+.scan-side { width: 70px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 22px; }
+.scan-side span { font-size: 11px; }
+.scan-side img { width: 40px; height: 52px; object-fit: cover; border: 2px solid #fff; border-radius: 4px; background: #333; }
+.scan-side img:not([src]), .scan-side img[src=""] { visibility: hidden; }
+.flash { animation: flash .25s; }
+@keyframes flash { from { background: #fff; } }
+
+.scan-review { background: var(--viewer-bg); }
+.rev-main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px; position: relative; }
+.rev-main img { max-width: 100%; max-height: 100%; box-shadow: 0 2px 10px rgba(0,0,0,.25); background: #fff; }
+.rev-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.4); font-weight: 600; }
+.rev-filters { flex: none; display: flex; gap: 8px; padding: 6px 12px; overflow-x: auto; }
+.rev-filters button { flex: none; padding: 7px 13px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); font-size: 13px; }
+.rev-filters button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rev-thumbs { flex: none; display: flex; gap: 8px; padding: 6px 12px 10px; overflow-x: auto; }
+.rev-thumbs .rt { flex: none; position: relative; width: 52px; height: 68px; border: 2px solid transparent; border-radius: 4px; overflow: hidden; background: #fff; }
+.rev-thumbs .rt img { width: 100%; height: 100%; object-fit: cover; }
+.rev-thumbs .rt.on { border-color: var(--accent); }
+.rev-thumbs .rt b { position: absolute; left: 2px; bottom: 2px; font-size: 10px; background: rgba(0,0,0,.6); color: #fff; padding: 0 4px; border-radius: 4px; }
+.rev-thumbs .rt.add { display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--muted); border: 2px dashed var(--line); background: none; }
+.rev-bar { position: relative; flex: none; }
+
+#cropCanvas { touch-action: none; }
+.crop-loupe { position: absolute; width: 120px; height: 120px; border-radius: 60px; border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.5); pointer-events: none; }

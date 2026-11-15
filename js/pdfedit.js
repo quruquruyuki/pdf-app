@@ -61,6 +61,21 @@ async function addImagePages(pdf, files) {
   }
 }
 
+// 処理済みのJPEG（スキャン）をそのままページにする
+export async function jpegsToPdf(pages) {
+  const pdf = await PDFDocument.create();
+  for (const pg of pages) {
+    const img = await pdf.embedJpg(await pg.blob.arrayBuffer());
+    // 横幅をA4（595pt）に合わせる。横長ならA4横の幅に合わせる
+    const landscape = pg.w > pg.h;
+    const pw = landscape ? 841.89 : 595.28, ph = pw * pg.h / pg.w;
+    const page = pdf.addPage([pw, ph]);
+    page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
+  }
+  pdf.setProducer('PDFノート');
+  return (await pdf.save()).buffer;
+}
+
 export async function imagesToPdf(files) {
   const pdf = await PDFDocument.create();
   await addImagePages(pdf, files);

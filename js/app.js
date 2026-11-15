@@ -1,7 +1,8 @@
 import { db, uid, requestPersist } from './db.js';
 import { $, $$, h, toast, sheet, modal, confirmBox, promptBox, progress, fmtSize, fmtDate } from './ui.js';
 import { openPdf, renderPageImage, isPdf } from './pdfcore.js';
-import { imagesToPdf, exportPdf, buildFromPlan, pdfPageCount } from './pdfedit.js';
+import { imagesToPdf, jpegsToPdf, exportPdf, buildFromPlan, pdfPageCount } from './pdfedit.js';
+import { openScanner, initScannerUI } from './scan.js';
 import { Viewer } from './viewer.js';
 import { Annotator, COLORS, bbox } from './annot.js';
 import { ocrPage, pageHasText } from './ocr.js';
@@ -177,6 +178,23 @@ async function mergeFlow(preselect = []) {
   }
 }
 
+// ---------- カメラでスキャン ----------
+async function scanFlow() {
+  const res = await openScanner();
+  if (!res) { showHome(); return; }
+  progress.show('PDFを作成中…');
+  let d;
+  try {
+    const bytes = await jpegsToPdf(res.pages);
+    d = await addDocument(bytes, res.name);
+  } catch (e) {
+    console.error(e); progress.hide(); toast('保存できませんでした: ' + e.message, 4000); showHome(); return;
+  }
+  progress.hide();
+  await openDoc(d.id);
+  if (res.ocr) await ocrMenu('all');
+}
+
 async function addDocument(bytes, name) {
   if (!isPdf(bytes)) throw new Error('PDFファイルではありません');
   const pdf = await openPdf(bytes);
@@ -218,12 +236,12 @@ function bindHome() {
   $('#btnAdd').onclick = async () => {
     const v = await sheet('追加', [
       { icon: '📄', label: 'PDFを開く', desc: '「ファイル」アプリやiCloud Driveから', value: 'pdf' },
-      { icon: '📷', label: '書類をスキャン', desc: 'カメラで撮影してPDFにします', value: 'scan' },
+      { icon: '📷', label: '書類をスキャン', desc: '枠を自動で見つけて、まっすぐ・くっきりにします', value: 'scan' },
       { icon: '🖼', label: '写真からPDFを作成', desc: '複数枚を1つのPDFにまとめます', value: 'img' },
       { icon: '🔗', label: 'PDFを結合', desc: '複数のPDFを1つにまとめます', value: 'merge' },
     ]);
     if (v === 'pdf') $('#filePdf').click();
-    if (v === 'scan') $('#fileScan').click();
+    if (v === 'scan') scanFlow();
     if (v === 'img') $('#fileImages').click();
     if (v === 'merge') mergeFlow();
   };
@@ -939,11 +957,11 @@ async function sign() {
 }
 
 // ---------- OCR ----------
-async function ocrMenu() {
+async function ocrMenu(preset) {
   hideMenus();
   const cur = viewer.current;
   const has = Object.keys(S.ocr).length > 0;
-  const v = await sheet('OCR（文字の読み取り）', [
+  const v = preset || await sheet('OCR（文字の読み取り）', [
     { icon: '📄', label: `このページ（${cur + 1}ページ）を読み取る`, value: 'this' },
     { icon: '🔍', label: '文字のないページだけ読み取る', desc: 'スキャンしたページを自動で探します', value: 'empty' },
     { icon: '📚', label: 'すべてのページを読み取る', value: 'all' },
@@ -1121,7 +1139,7 @@ function bindViewer() {
   $('#mEdit').onclick = () => setEditMode(true);
   $('#mPages').onclick = organize;
   $('#mSign').onclick = sign;
-  $('#mOcr').onclick = ocrMenu;
+  $('#mOcr').onclick = () => ocrMenu();
   $('#mThumbs').onclick = openThumbs;
   $$('[data-close]').forEach(b => b.onclick = () => $('#' + b.dataset.close).classList.add('hidden'));
 }
@@ -1133,6 +1151,7 @@ async function init() {
   bindAnnotBar();
   bindDesktop();
   initOrganizerUI();
+  initScannerUI();
   S.sort = await db.kvGet('sort', 'updated');
   annot.pencilOnly = await db.kvGet('pencilOnly', false);
   $('#pencilOnly').checked = annot.pencilOnly;

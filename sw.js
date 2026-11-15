@@ -1,12 +1,12 @@
 // オフラインでも開けるようにするキャッシュ
-const VERSION = 'v8';
+const VERSION = 'v9';
 const SHELL = `shell-${VERSION}`;
 const LAZY = `lazy-${VERSION}`;
 
 const SHELL_FILES = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/ui.js', 'js/pdfcore.js', 'js/pdfedit.js', 'js/viewer.js',
-  'js/annot.js', 'js/ocr.js', 'js/fontsubset.js', 'js/fonts.js', 'js/sign.js', 'js/organizer.js',
+  'js/annot.js', 'js/ocr.js', 'js/fontsubset.js', 'js/fonts.js', 'js/scan.js', 'js/scanimg.js', 'js/sign.js', 'js/organizer.js',
   'vendor/pdf-lib.min.js', 'vendor/fontkit.umd.min.js',
   'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
