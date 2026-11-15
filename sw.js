@@ -1,5 +1,5 @@
 // オフラインでも開けるようにするキャッシュ
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL = `shell-${VERSION}`;
 const LAZY = `lazy-${VERSION}`;
 

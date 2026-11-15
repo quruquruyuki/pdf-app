@@ -1,18 +1,88 @@
 // スキャン用の画像処理（書類の枠の検出・ゆがみ補正・見やすくする補正）
 
 // ---------- 書類の枠を見つける ----------
-// 小さく縮めた画像から、紙（まわりより明るい大きな四角）を探す。
+// 小さく縮めた画像から書類の四角を探す。
+// 1) 明るさのしきい値をいくつか変えて「紙らしいかたまり」の候補を作る
+// 2) 候補ごとに四角を当てはめ、四辺にくっきりした境目があるか・四角らしいかで点数を付ける
+// 3) 一番よい四角の各辺を、境目の線に合わせて微調整する
 // 戻り値：[[x,y]×4]（左上・右上・右下・左下、0〜1の割合）または null
 export function detectQuad(ctx, w, h) {
   const src = ctx.getImageData(0, 0, w, h).data;
   const n = w * h;
   let g = new Float32Array(n);
   for (let i = 0, o = 0; i < n; i++, o += 4) g[i] = src[o] * 0.299 + src[o + 1] * 0.587 + src[o + 2] * 0.114;
-  g = boxBlur(boxBlur(g, w, h, 2), w, h, 2);
+  g = boxBlur(boxBlur(g, w, h, 1), w, h, 1);
 
-  // 大津の方法で「明るい／暗い」を分ける
+  // 境目の強さ（ソーベル）
+  const mag = new Float32Array(n);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const gx = g[i - w + 1] + 2 * g[i + 1] + g[i + w + 1] - g[i - w - 1] - 2 * g[i - 1] - g[i + w - 1];
+      const gy = g[i + w - 1] + 2 * g[i + w] + g[i + w + 1] - g[i - w - 1] - 2 * g[i - w] - g[i - w + 1];
+      mag[i] = Math.hypot(gx, gy);
+    }
+  }
+  const sorted = Float32Array.from(mag).sort();
+  const magRef = Math.max(20, sorted[Math.floor(n * 0.97)]);
+
+  // しきい値の候補（大津の値と、その前後）
   const hist = new Uint32Array(256);
-  for (let i = 0; i < n; i++) hist[g[i] | 0]++;
+  for (let i = 0; i < n; i++) hist[Math.min(255, g[i] | 0)]++;
+  const otsu = otsuThreshold(hist, n);
+  // 紙と、紙に近い明るさの背景（白っぽい布など）を分けられるよう、明るい側も細かく試す
+  const cand = [otsu - 50, otsu - 25, otsu, otsu + 20, otsu + 45];
+  for (let t = 150; t <= 230; t += 16) cand.push(t);
+  const ths = [...new Set(cand.map(t => Math.max(20, Math.min(240, Math.round(t / 4) * 4))))].sort((a, b) => a - b);
+
+  let best = null;
+  const label = new Int32Array(n);
+  const stack = new Int32Array(n);
+  for (const th of ths) {
+    label.fill(-1);
+    let id = 0;
+    for (let s0 = 0; s0 < n; s0++) {
+      if (g[s0] <= th || label[s0] >= 0) continue;
+      // かたまりを塗りつぶしながら、ふちの点を集める
+      let sp = 0, area = 0;
+      const edge = [];
+      stack[sp++] = s0; label[s0] = id;
+      while (sp) {
+        const p = stack[--sp];
+        area++;
+        const x = p % w, y = (p / w) | 0;
+        let border = x === 0 || y === 0 || x === w - 1 || y === h - 1;
+        const nb = [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1];
+        for (const q of nb) {
+          if (q < 0) continue;
+          if (g[q] > th) { if (label[q] < 0) { label[q] = id; stack[sp++] = q; } }
+          else border = true;
+        }
+        if (border) edge.push(x, y);
+      }
+      id++;
+      if (area < n * 0.06 || area > n * 0.96) continue;
+      const quad = quadFromPoints(edge);
+      if (!quad) continue;
+      const qa = polyArea(quad) ;
+      if (qa < n * 0.06 || !isConvex(quad)) continue;
+      const fill = Math.min(1, area / qa);
+      if (fill < 0.72) continue;
+      const es = edgeScore(quad, mag, w, h, magRef);
+      if (es < 0.18) continue;
+      let border = 1;
+      for (const [x, y] of quad) if (x < w * 0.015 || y < h * 0.015 || x > w * 0.985 || y > h * 0.985) border *= 0.8;
+      const score = es * fill * fill * Math.pow(qa / n, 0.25) * border * angleScore(quad);
+      if (!best || score > best.score) best = { quad, score, es };
+    }
+  }
+  if (!best) return null;
+  const refined = refineQuad(best.quad, mag, w, h);
+  const q = refined || best.quad;
+  return q.map(([x, y]) => [Math.min(1, Math.max(0, x / (w - 1))), Math.min(1, Math.max(0, y / (h - 1)))]);
+}
+
+function otsuThreshold(hist, n) {
   let sum = 0;
   for (let t = 0; t < 256; t++) sum += t * hist[t];
   let sumB = 0, wB = 0, best = 0, th = 128;
@@ -24,59 +94,160 @@ export function detectQuad(ctx, w, h) {
     const v = wB * wF * (mB - mF) * (mB - mF);
     if (v > best) { best = v; th = t; }
   }
-  // 明暗の差が小さいときは見つからない扱い
-  let mLo = 0, cLo = 0, mHi = 0, cHi = 0;
-  for (let t = 0; t < 256; t++) { if (t <= th) { mLo += t * hist[t]; cLo += hist[t]; } else { mHi += t * hist[t]; cHi += hist[t]; } }
-  if (!cLo || !cHi || (mHi / cHi - mLo / cLo) < 25) return null;
+  return th;
+}
 
-  const mask = new Uint8Array(n);
-  for (let i = 0; i < n; i++) mask[i] = g[i] > th ? 1 : 0;
+// ふちの点の凸包から、面積が最大に近い四角を選ぶ（傾いた書類にも強い）
+function quadFromPoints(flat) {
+  const pts = [];
+  const step = Math.max(1, Math.floor(flat.length / 2 / 1500));
+  for (let i = 0; i < flat.length; i += 2 * step) pts.push([flat[i], flat[i + 1]]);
+  const hull = convexHull(pts);
+  if (hull.length < 4) return null;
+  // いちばん離れた2点（対角線）
+  let a = 0, c = 0, dmax = -1;
+  for (let i = 0; i < hull.length; i++) for (let j = i + 1; j < hull.length; j++) {
+    const d = (hull[i][0] - hull[j][0]) ** 2 + (hull[i][1] - hull[j][1]) ** 2;
+    if (d > dmax) { dmax = d; a = i; c = j; }
+  }
+  const A = hull[a], C = hull[c];
+  const side = (P) => (C[0] - A[0]) * (P[1] - A[1]) - (C[1] - A[1]) * (P[0] - A[0]);
+  let B = null, D = null, bmax = 0, dmin = 0;
+  for (const P of hull) { const s = side(P); if (s > bmax) { bmax = s; B = P; } if (s < dmin) { dmin = s; D = P; } }
+  if (!B || !D) return null;
+  // 2本目の対角線で、もう一度いちばん面積が大きくなる点を探し直す
+  const side2 = (P) => (D[0] - B[0]) * (P[1] - B[1]) - (D[1] - B[1]) * (P[0] - B[0]);
+  let A2 = A, C2 = C, amax = 0, cmin = 0;
+  for (const P of hull) { const s = side2(P); if (s > amax) { amax = s; C2 = P; } if (s < cmin) { cmin = s; A2 = P; } }
+  return orderQuad([A2, B, C2, D]);
+}
 
-  // いちばん大きい明るいかたまり（中央に近いものを優先）
-  const label = new Int32Array(n).fill(-1);
-  const stack = new Int32Array(n);
-  let bestArea = 0, bestId = -1, id = 0;
-  const cx = w / 2, cy = h / 2;
-  let bestScore = 0;
-  for (let s = 0; s < n; s++) {
-    if (!mask[s] || label[s] >= 0) continue;
-    let sp = 0, area = 0, sx = 0, sy = 0;
-    stack[sp++] = s; label[s] = id;
-    while (sp) {
-      const p = stack[--sp];
-      area++;
-      const x = p % w, y = (p / w) | 0;
-      sx += x; sy += y;
-      if (x > 0 && mask[p - 1] && label[p - 1] < 0) { label[p - 1] = id; stack[sp++] = p - 1; }
-      if (x < w - 1 && mask[p + 1] && label[p + 1] < 0) { label[p + 1] = id; stack[sp++] = p + 1; }
-      if (y > 0 && mask[p - w] && label[p - w] < 0) { label[p - w] = id; stack[sp++] = p - w; }
-      if (y < h - 1 && mask[p + w] && label[p + w] < 0) { label[p + w] = id; stack[sp++] = p + w; }
+function convexHull(pts) {
+  pts = pts.slice().sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  up.pop(); lo.pop();
+  return lo.concat(up);
+}
+
+// 左上・右上・右下・左下の順に並べる
+function orderQuad(q) {
+  const cx = q.reduce((s, p) => s + p[0], 0) / 4, cy = q.reduce((s, p) => s + p[1], 0) / 4;
+  const sorted = q.slice().sort((p1, p2) => Math.atan2(p1[1] - cy, p1[0] - cx) - Math.atan2(p2[1] - cy, p2[0] - cx));
+  // 角度順（右回り：左上から）に並んだので、x+yが最小の点を先頭に
+  let k = 0, m = Infinity;
+  sorted.forEach((p, i) => { if (p[0] + p[1] < m) { m = p[0] + p[1]; k = i; } });
+  return [0, 1, 2, 3].map(i => sorted[(k + i) % 4]);
+}
+
+// 四辺にそって、境目がどれだけはっきりしているか（0〜1くらい）
+function edgeScore(q, mag, w, h, ref) {
+  const scores = [];
+  for (let s = 0; s < 4; s++) {
+    const [x1, y1] = q[s], [x2, y2] = q[(s + 1) % 4];
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
+    const vals = [];
+    const N = 28;
+    for (let k = 1; k < N; k++) {
+      const t = k / N;
+      let m = 0;
+      for (let d = -2; d <= 2; d++) {
+        const x = Math.round(x1 + (x2 - x1) * t + nx * d), y = Math.round(y1 + (y2 - y1) * t + ny * d);
+        if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
+        m = Math.max(m, mag[y * w + x]);
+      }
+      vals.push(Math.min(1, m / ref));
     }
-    const d = Math.hypot(sx / area - cx, sy / area - cy) / Math.hypot(cx, cy);
-    const score = area * (1.2 - d);
-    if (score > bestScore) { bestScore = score; bestArea = area; bestId = id; }
-    id++;
+    vals.sort((a, b) => a - b);
+    // 辺の大部分で境目が見えているか（下から30%の値）
+    scores.push(vals[Math.floor(vals.length * 0.3)]);
   }
-  if (bestId < 0 || bestArea < n * 0.12 || bestArea > n * 0.97) return null;
+  const mean = scores.reduce((a, b) => a + b, 0) / 4;
+  return 0.5 * Math.min(...scores) + 0.5 * mean;
+}
 
-  // 四隅：x+y と x−y が最大・最小になる点
-  let tl = null, tr = null, br = null, bl = null;
-  let vtl = Infinity, vtr = -Infinity, vbr = -Infinity, vbl = Infinity;
-  for (let p = 0; p < n; p++) {
-    if (label[p] !== bestId) continue;
-    const x = p % w, y = (p / w) | 0;
-    const a = x + y, b = x - y;
-    if (a < vtl) { vtl = a; tl = [x, y]; }
-    if (a > vbr) { vbr = a; br = [x, y]; }
-    if (b > vtr) { vtr = b; tr = [x, y]; }
-    if (b < vbl) { vbl = b; bl = [x, y]; }
+// 角が90°から大きく外れるものを少し減点（遠近で多少ゆがむのは許す）
+function angleScore(q) {
+  let sc = 1;
+  for (let i = 0; i < 4; i++) {
+    const a = q[(i + 3) % 4], b = q[i], c = q[(i + 1) % 4];
+    const v1 = [a[0] - b[0], a[1] - b[1]], v2 = [c[0] - b[0], c[1] - b[1]];
+    const cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (Math.hypot(...v1) * Math.hypot(...v2));
+    const ang = Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
+    if (ang < 45 || ang > 135) return 0;
+    if (ang < 60 || ang > 120) sc *= 0.7;
   }
-  const q = [tl, tr, br, bl].map(([x, y]) => [x / (w - 1), y / (h - 1)]);
-  // 四角としておかしい（小さすぎる・ねじれている）ものは捨てる
-  if (polyArea(q) < 0.1 || !isConvex(q)) return null;
-  // 紙の面積と四角の面積が大きく違う＝四角ではない
-  if (bestArea / n / polyArea(q) < 0.75) return null;
-  return q;
+  return sc;
+}
+
+// 各辺を、近くの一番くっきりした境目に合わせて引き直し、交点を新しい角にする
+function refineQuad(q, mag, w, h) {
+  const diag = Math.hypot(w, h);
+  const lines = [];
+  for (let s = 0; s < 4; s++) {
+    const [x1, y1] = q[s], [x2, y2] = q[(s + 1) % 4];
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const tx = (x2 - x1) / len, ty = (y2 - y1) / len, nx = -ty, ny = tx;
+    const R = Math.max(3, Math.round(diag * 0.02));
+    const pts = [];
+    const N = 40;
+    for (let k = 2; k < N - 1; k++) {
+      const t = k / N;
+      const bx = x1 + (x2 - x1) * t, by = y1 + (y2 - y1) * t;
+      let bm = 0, bp = null;
+      for (let d = -R; d <= R; d++) {
+        const x = Math.round(bx + nx * d), y = Math.round(by + ny * d);
+        if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
+        const m = mag[y * w + x];
+        if (m > bm) { bm = m; bp = [x, y]; }
+      }
+      if (bp && bm > 15) pts.push(bp);
+    }
+    if (pts.length < 8) { lines.push(lineFrom([[x1, y1], [x2, y2]])); continue; }
+    lines.push(fitLine(pts));
+  }
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const p = intersect(lines[(i + 3) % 4], lines[i]);
+    if (!p) return null;
+    if (Math.hypot(p[0] - q[i][0], p[1] - q[i][1]) > diag * 0.06) return null;
+    out.push(p);
+  }
+  return isConvex(out) ? out : null;
+}
+
+// 直線を「点(px,py)と向き(dx,dy)」で表す
+function lineFrom([[x1, y1], [x2, y2]]) {
+  const l = Math.hypot(x2 - x1, y2 - y1) || 1;
+  return { px: x1, py: y1, dx: (x2 - x1) / l, dy: (y2 - y1) / l };
+}
+function fitLine(pts) {
+  // 外れ値に強くするため、2回に分けて当てはめる
+  let L = pcaLine(pts);
+  const dist = (p) => Math.abs((p[0] - L.px) * L.dy - (p[1] - L.py) * L.dx);
+  const ds = pts.map(dist).sort((a, b) => a - b);
+  const lim = Math.max(1.5, ds[Math.floor(ds.length * 0.7)] * 1.5);
+  const inl = pts.filter(p => dist(p) <= lim);
+  if (inl.length >= 6) L = pcaLine(inl);
+  return L;
+}
+function pcaLine(pts) {
+  let mx = 0, my = 0;
+  for (const [x, y] of pts) { mx += x; my += y; }
+  mx /= pts.length; my /= pts.length;
+  let sxx = 0, sxy = 0, syy = 0;
+  for (const [x, y] of pts) { sxx += (x - mx) ** 2; sxy += (x - mx) * (y - my); syy += (y - my) ** 2; }
+  const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  return { px: mx, py: my, dx: Math.cos(ang), dy: Math.sin(ang) };
+}
+function intersect(a, b) {
+  const den = a.dx * b.dy - a.dy * b.dx;
+  if (Math.abs(den) < 1e-6) return null;
+  const t = ((b.px - a.px) * b.dy - (b.py - a.py) * b.dx) / den;
+  return [a.px + a.dx * t, a.py + a.dy * t];
 }
 
 function boxBlur(a, w, h, r) {

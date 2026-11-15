@@ -84,12 +84,16 @@ function loop() {
   if (!st || !st.stream) return;
   const v = $('#scanVideo');
   if (v.readyState >= 2 && v.videoWidth) {
-    const k = 260 / Math.max(v.videoWidth, v.videoHeight);
+    const k = 220 / Math.max(v.videoWidth, v.videoHeight);
     small.width = Math.round(v.videoWidth * k);
     small.height = Math.round(v.videoHeight * k);
     const ctx = small.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(v, 0, 0, small.width, small.height);
-    const q = detectQuad(ctx, small.width, small.height);
+    const now0 = performance.now();
+    let q = detectQuad(ctx, small.width, small.height);
+    // 一瞬見失っても枠がちらつかないよう、少しのあいだ前の枠を使う
+    if (q) { st.lastSeen = now0; st.lastQ = q; }
+    else if (st.lastQ && now0 - st.lastSeen < 450) q = st.lastQ;
     // なめらかに動かす
     if (q && st.quad) st.quad = st.quad.map((p, i) => [p[0] * 0.5 + q[i][0] * 0.5, p[1] * 0.5 + q[i][1] * 0.5]);
     else st.quad = q;
